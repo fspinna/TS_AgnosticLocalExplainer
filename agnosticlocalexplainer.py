@@ -297,14 +297,15 @@ class AgnosticLocalExplainer(object):
         ax.set_title("Rule Averages")
         plt.show()
         
-    def segment_ts(self, ts, model = "rbf", jump = 5, pen = 1, figsize = (20,3)):
+    def segment_ts(self, ts, model = "rbf", jump = 5, pen = 1, figsize = (20,3), plot = True):
         # detection
         algo = rpt.Pelt(model=model, jump = jump).fit(ts)
         result = algo.predict(pen=pen)
     
         # display
-        rpt.display(ts, true_chg_pts = result, computed_chg_pts=result, figsize = figsize)
-        plt.show()
+        if plot:
+            rpt.display(ts, true_chg_pts = result, computed_chg_pts=result, figsize = figsize)
+            plt.show()
         return result
     
     def generate_segment_list(self, segmentation):
@@ -421,11 +422,11 @@ class AgnosticLocalExplainer(object):
                 background = "linear", 
                 pen = 1,
                 model = "rbf",
-                jump = 5,
+                jump = 5, plot = True,
                 figsize = (20,3)):
         
         #print(model)
-        result = self.segment_ts(ts, model = model, jump = jump, pen = pen, figsize = figsize)
+        result = self.segment_ts(ts, model = model, jump = jump, pen = pen, figsize = figsize, plot = plot)
         def f_3d(z):
             tss = self.mask_ts(z, result, ts, background)
             tss = tss.reshape(tss.shape[0],tss.shape[1],1)
@@ -449,10 +450,76 @@ class AgnosticLocalExplainer(object):
         explainer = shap.KernelExplainer(f, data = np.zeros((1,len(result))))
         
         shap_values = explainer.shap_values(np.ones((1,len(result))), nsamples=nsamples)
-        self.shap_output_data.append(self.mask_ts(explainer.synth_data, result, ts, background))
-        #return shap_values
-        self.plot_shap(ts, shap_values, result, figsize = figsize)
+        #self.shap_output_data.append(self.mask_ts(explainer.synth_data, result, ts, background))
+        if plot:
+            self.plot_shap(ts, shap_values, result, figsize = figsize)
         return shap_values
+    
+    
+    def multi_shap(self, 
+                   dataset, 
+                   n = -1, 
+                   figsize = (8,8), 
+                   nsamples = 1000,
+                   background = "linear",
+                   pen = 1,
+                   model = "rbf",
+                   jump = 5,
+                   ):
+        if n > len(dataset):
+            n = len(dataset)
+        if n != -1:
+            idxs = np.random.choice(len(dataset), n, replace=False)
+            sample_dataset = dataset[idxs]
+        else:
+            sample_dataset = dataset
+        shap_values_array = []
+        for ts in sample_dataset:
+            shap_values = self.shap_ts(ts = ts, 
+                        classifier = self.blackbox, 
+                        input_dim = self.blackbox_input_dimensions,
+                        nsamples = nsamples,
+                        background = background,
+                        pen = pen,
+                        model = model,
+                        jump = jump,
+                        plot = False
+                        )
+            shap_values = np.array(shap_values)
+            shap_values = shap_values.reshape(shap_values.shape[0],shap_values.shape[2])
+            shap_values_array.append(shap_values)
+        #return shap_values_array
+        max_len = 0
+        for shap_values in shap_values_array:
+            if shap_values.shape[1] > max_len:
+                max_len = shap_values.shape[1]
+                
+        for i, shap_values in enumerate(shap_values_array):
+            if shap_values.shape[1] < max_len:
+                padding = max_len - shap_values.shape[1]
+                shap_values_array[i] = np.pad(shap_values_array[i], ((0, 0), (0, padding)), 'constant', constant_values = 0)
+        shap_values_array = np.array(shap_values_array)
+        shap_values_array = np.transpose(shap_values_array, (1, 0, 2))
+        self.shap_heatmap(shap_values_array, figsize = figsize)
+            
+            
+    
+    def shap_heatmap(self, shap_values_array, figsize = (8,8)):
+        # shap_values_array -> 3d: (classes, batch, segments)
+        minima = shap_values_array.min()
+        maxima = shap_values_array.max()
+        
+        # these are here to avoid error in case there aren't values under or over 0 (for DiverginNorm)
+        if minima == 0: minima -= sys.float_info.epsilon
+        if maxima == 0: maxima += sys.float_info.epsilon
+    
+        norm = matplotlib.colors.DivergingNorm(vmin=minima, vcenter=0, vmax=maxima)
+        for i, class_array in enumerate(shap_values_array):
+            fig = plt.figure(figsize = figsize)
+            ax = fig.add_subplot(111)
+            ax.set_title("class: " + str(i) if not self.labels else "class: " + str(self.labels[i]) + " ({})".format(str(i)))
+            ax.matshow(class_array, norm = norm, cmap = "coolwarm", aspect="auto")
+            plt.show()
     
     def plot_explanation(self, 
                          rules = True, 
@@ -460,6 +527,7 @@ class AgnosticLocalExplainer(object):
                          latent_space = True,
                          VAE_2d = False,
                          shap_explanation = True,
+                         multi_shap_explanation = False,
                          shapelet_explanation = True,
                          figsize = (20,3),
                          **params
@@ -484,7 +552,7 @@ class AgnosticLocalExplainer(object):
         if heatmap: self.plot_rules_heatmaps(figsize = figsize)
         
         # plot shap explanation on rules and crules centroids
-        self.shap_output_data = []
+        #self.shap_output_data = []
         if shap_explanation:
             mean_df = []
             for rule in self.rules_dataframes.keys():
@@ -502,6 +570,20 @@ class AgnosticLocalExplainer(object):
                         model = params.get("peltmodel", "rbf"),
                         jump = params.get("jump", 5)
                         )
+        
+        if multi_shap_explanation:
+            for rule in self.rules_dataframes.keys():
+                print(rule)
+                self.multi_shap(self.rules_dataframes[rule]["df"], 
+                                n = params.get("multishap_n", -1), 
+                                figsize = (8,8), 
+                                nsamples = params.get("nsamples", 1000),
+                                background = params.get("background", "linear"),
+                                pen = params.get("pen", 1),
+                                model = params.get("peltmodel", "rbf"),
+                                jump = params.get("jump", 5),
+                                )
+                
     
         
         # plot shapelet explanation on rules and crules centroids
@@ -811,14 +893,17 @@ if __name__ == '__main__':
     agnostic.LOREM_tree_rules_extraction()
     agnostic.build_rules_dataframes()
     
-    params = {"background": "linear_consecutive", "nsamples":1000, "optimizer": keras.optimizers.Adagrad(lr=.1)}
+    params = {"background": "linear_consecutive", "nsamples":300, "optimizer": keras.optimizers.Adagrad(lr=.1), "multishap_n":50}
     
     agnostic.plot_explanation( 
-                         rules = True, 
+                         rules = False, 
                          heatmap = False, 
                          shap_explanation = True, 
-                         shapelet_explanation = True,
+                         shapelet_explanation = False,
+                         latent_space = False,
+                         multi_shap_explanation = True,
                          figsize = (20,3),
-                         VAE_2d = True,
+                         VAE_2d = False,
                          **params
                          )
+    
