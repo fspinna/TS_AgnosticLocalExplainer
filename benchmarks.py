@@ -232,7 +232,7 @@ def benchmark_cbf(save_output = False):
     
     if save_output:
         results_autoencoders_df.to_csv("./final_models/" + dataset_name + "_autoencoders_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
-        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
     
     return results_blackboxes_df, results_autoencoders_df
     
@@ -350,6 +350,7 @@ def benchmark_HAR(save_output = False):
 
     latent_dim = 50
     results_autoencoders = {"ae_cnn": [latent_dim],
+                            "vae_cnn": [latent_dim],
                "ae_lstm": [latent_dim]
               }
     
@@ -376,11 +377,26 @@ def benchmark_HAR(save_output = False):
     _, _, ae_cnn = aut.build()
     ae_cnn.load_weights("./final_models/HARDataset/HARDataset_autoencoder_20191031_212226_best_weights_+0.008519_.hdf5")
     
+    # VARIATIONAL AUTOENCODER
+    params = {"input_shape": (n_timesteps,1),
+              "n_blocks": 8, 
+              "latent_dim": 50,
+              "encoder_latent_layer_type": "variational",
+              "encoder_args": {"filters":[2,4,8,16,32,64,128,256], 
+                                "kernel_size":[21,18,15,13,11,8,5,3], 
+                                "padding":"same", 
+                                "activation":"selu", 
+                                "pooling":[1,1,1,1,1,1,1,1]}
+             }
+    aut = Autoencoder(verbose = False, **params)
+    _, _, vae_cnn = aut.build()
+    vae_cnn.load_weights("./final_models/HARDataset/HARDataset_autoencoder_20191201_153104_best_weights_+17.406494_.hdf5")
+    
     # STANDARD (LSTM) AUTOENCODER
     ae_lstm = build_lstm_autoencoder(n_timesteps, latent_dim)
     ae_lstm.load_weights("./final_models/HARDataset/HARDataset_lstm_autoencoder_20191130_093909_best_weights_+0.070170_.hdf5")
     
-    autoencoders = [(ae_cnn, "ae_cnn"),(ae_lstm, "ae_lstm")]
+    autoencoders = [(ae_cnn, "ae_cnn"),(vae_cnn, "vae_cnn"),(ae_lstm, "ae_lstm")]
     
     
     for autoencoder in autoencoders:
@@ -411,7 +427,7 @@ def benchmark_HAR(save_output = False):
     
     if save_output:
         results_autoencoders_df.to_csv("./final_models/" + dataset_name + "_autoencoders_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
-        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
     
     return results_blackboxes_df, results_autoencoders_df
 
@@ -518,6 +534,7 @@ def benchmark_phalanges(save_output = False):
 
     latent_dim = 40
     results_autoencoders = {"ae_cnn": [latent_dim],
+                            "vae_cnn": [latent_dim],
                "ae_lstm": [latent_dim]
               }
     
@@ -544,11 +561,27 @@ def benchmark_phalanges(save_output = False):
     _, _, ae_cnn = aut.build()
     ae_cnn.load_weights("./final_models/phalanges/phalanges_autoencoder_20191103_211535_best_weights_+0.0010_.hdf5")
     
+    # VARIATIONAL AUTOENCODER
+    params = {"input_shape": (n_timesteps,1),
+              "n_blocks": 8, 
+              "latent_dim": 40,
+              "encoder_latent_layer_type": "variational",
+              "encoder_args": {"filters":[2,4,8,16,32,64,128,256], 
+                                "kernel_size":[21,18,15,13,11,8,5,3], 
+                                "padding":"same", 
+                                "activation":"elu", 
+                                "pooling":[1,1,1,1,1,1,1,2]}
+             }
+    aut = Autoencoder(verbose = False, **params)
+    _, _, vae_cnn = aut.build()
+    vae_cnn.load_weights("./final_models/phalanges/phalanges_autoencoder_20191201_145321_best_weights_+2.9536_.hdf5")
+    
+    
     # STANDARD (LSTM) AUTOENCODER
     ae_lstm = build_lstm_autoencoder(n_timesteps, latent_dim)
     ae_lstm.load_weights("./final_models/phalanges/phalanges_lstm_autoencoder_20191130_214525_best_weights_+0.014177_.hdf5")
     
-    autoencoders = [(ae_cnn, "ae_cnn"),(ae_lstm, "ae_lstm")]
+    autoencoders = [(ae_cnn, "ae_cnn"),(vae_cnn, "vae_cnn"),(ae_lstm, "ae_lstm")]
     
     
     for autoencoder in autoencoders:
@@ -579,6 +612,6 @@ def benchmark_phalanges(save_output = False):
     
     if save_output:
         results_autoencoders_df.to_csv("./final_models/" + dataset_name + "_autoencoders_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
-        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
     
     return results_blackboxes_df, results_autoencoders_df
