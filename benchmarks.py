@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Nov 28 17:36:35 2019
+Created on Sat Nov 30 23:39:47 2019
 
 @author: francesco
 """
@@ -12,15 +12,16 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from joblib import load
 from blackboxes import build_resnet, build_simple_CNN
-from myutils import reconstruction_blackbox_consistency
+from myutils import BlackboxPredictWrapper
 from autoencoders import Autoencoder, DiscriminativeAutoencoder
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, accuracy_score
+from toy_autoencoders import build_lstm_autoencoder
 import time
 
 import warnings
 warnings.filterwarnings("ignore")
 
-def benchmark_cbf():
+def benchmark_cbf(save_output = False):
     from pyts.datasets import make_cylinder_bell_funnel
     random_state = 0
     dataset_name = "cbf"
@@ -70,58 +71,67 @@ def benchmark_cbf():
     print("N. LABELS: ", n_outputs)
     
     
-    results = {"resnet":[],
+    
+    results_blackboxes = {"resnet":[],
                "simplecnn":[],
                "knn": [],
-               "autoencoder": [],
-               "vae": [],
-               "discriminative_autoencoder":[],
-               "discriminative_vae": []
               }
-    results_rows = ["train_mse", 
+    
+    results_blackboxes_rows = ["train_mse", 
                     "train_accuracy",
                     "validation_mse", 
                     "validation_accuracy",
                     "test_mse", 
                     "test_accuracy",
-                    "latent_dimension",
-                    "reconstruction_blackbox_accuracy_train_ae",
-                    "reconstruction_blackbox_accuracy_validation_ae",
-                    "reconstruction_blackbox_accuracy_test_ae",
-                    "reconstruction_blackbox_accuracy_train_vae",
-                    "reconstruction_blackbox_accuracy_validation_vae",
-                    "reconstruction_blackbox_accuracy_test_vae",
-                    "reconstruction_blackbox_accuracy_train_dae",
-                    "reconstruction_blackbox_accuracy_validation_dae",
-                    "reconstruction_blackbox_accuracy_test_dae",
-                    "reconstruction_blackbox_accuracy_train_dvae",
-                    "reconstruction_blackbox_accuracy_validation_dvae",
-                    "reconstruction_blackbox_accuracy_test_dvae",
                    ]
+    dataset_list = [(X_train, y_train), (X_val, y_val), (X_test, y_test)]
+    dataset_list_exp = [(X_exp_train, y_exp_train), (X_exp_val, y_exp_val), (X_exp_test, y_exp_test)]
     
     resnet = build_resnet(n_timesteps, n_outputs)
     resnet.load_weights("./final_models/cbf/cbf_blackbox_resnet_20191106_145242_best_weights_+1.00_.hdf5")
-    results["resnet"].extend(resnet.evaluate(X_train, y_train))
-    results["resnet"].extend(resnet.evaluate(X_val, y_val))
-    results["resnet"].extend(resnet.evaluate(X_test, y_test))
-    results["resnet"].append(np.NaN)
-    
+    resnet_predict = BlackboxPredictWrapper(resnet, 3)
     
     simplecnn = build_simple_CNN(n_timesteps, n_outputs)
     simplecnn.load_weights("./final_models/cbf/cbf_blackbox_simpleCNN_20191106_145515_best_weights_+1.00_.hdf5")
-    results["simplecnn"].extend(simplecnn.evaluate(X_train, y_train))
-    results["simplecnn"].extend(simplecnn.evaluate(X_val, y_val))
-    results["simplecnn"].extend(simplecnn.evaluate(X_test, y_test))
-    results["simplecnn"].append(np.NaN)
+    simplecnn_predict = BlackboxPredictWrapper(simplecnn, 3)
     
     knn = load("./final_models/cbf/cbf_blackbox_knn_20191106_145654.joblib")
-    results["knn"].append(mean_squared_error(y_train, knn.predict(X_train.reshape(X_train.shape[:2]))))
-    results["knn"].append(knn.score(X_train.reshape(X_train.shape[:2]), y_train))
-    results["knn"].append(mean_squared_error(y_val, knn.predict(X_val.reshape(X_val.shape[:2]))))
-    results["knn"].append(knn.score(X_val.reshape(X_val.shape[:2]), y_val))
-    results["knn"].append(mean_squared_error(y_test, knn.predict(X_test.reshape(X_test.shape[:2]))))
-    results["knn"].append(knn.score(X_test.reshape(X_test.shape[:2]), y_test))
-    results["knn"].append(np.NaN)
+    knn_predict = BlackboxPredictWrapper(knn, 2)
+    
+    predicts = [(resnet_predict, "resnet"), (simplecnn_predict, "simplecnn"), (knn_predict, "knn")]
+    blackboxes = [(resnet, "resnet"), (simplecnn, "simplecnn"), (knn, "knn")]
+    
+    for blackbox_predict in blackboxes:
+        for dataset in dataset_list:
+            real = dataset[1]
+            if blackbox_predict[1] in ["resnet", "simplecnn"]:
+                prediction = blackbox_predict[0].evaluate(dataset[0], real)
+                mse = prediction[0]
+                accuracy = prediction[1]
+            else:
+                accuracy = blackbox_predict[0].score(dataset[0].reshape(dataset[0].shape[:2]), real)
+                mse = mean_squared_error(real, blackbox_predict[0].predict(dataset[0].reshape(dataset[0].shape[:2])))
+            #print(prediction.shape)
+            results_blackboxes[blackbox_predict[1]].append(mse)
+            results_blackboxes[blackbox_predict[1]].append(accuracy)
+            
+    results_blackboxes_df = pd.DataFrame(results_blackboxes, index = results_blackboxes_rows)  
+
+    latent_dim = 2
+    results_autoencoders = {"ae_cnn": [latent_dim],
+               "vae_cnn": [latent_dim],
+               "aae_cnn":[latent_dim],
+               "avae_cnn": [latent_dim],
+               "ae_lstm": [latent_dim]
+              }
+    
+    results_autoencoders_rows = ["latent_dimension", "train_mse", "validation_mse", "test_mse"]
+    
+    
+    for blackbox_predict in predicts:
+        for X in ["train", "validation", "test"]:
+            key = "reconstruction_" + blackbox_predict[1] + "_" + X + "_accuracy"
+            results_autoencoders_rows.append(key)
     
     # STANDARD AUTOENCODER
     params = {'input_shape': (128, 1), 
@@ -134,27 +144,8 @@ def benchmark_cbf():
                                'activation': 'elu', 
                                'pooling': [1, 1, 1, 1, 1, 1, 1, 1]}}
     aut = Autoencoder(verbose = False, **params)
-    _, _, autoencoder = aut.build()
-    autoencoder.load_weights("./final_models/cbf/cbf_autoencoder_20191106_144056_best_weights_+1.0504_.hdf5")
-    autoencoder_name = "autoencoder"
-    results[autoencoder_name].append(autoencoder.evaluate(X_exp_train, X_exp_train))
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(autoencoder.evaluate(X_exp_val, X_exp_val))
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(autoencoder.evaluate(X_exp_test, X_exp_test))
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(params["latent_dim"])
-    for i in range(12):
-        results[autoencoder_name].append(np.NaN)
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_train))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_val))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_test))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_train))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_val))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_test))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_train, keras = False))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_val, keras = False))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_test, keras = False))
+    _, _, ae_cnn = aut.build()
+    ae_cnn.load_weights("./final_models/cbf/cbf_autoencoder_20191106_144056_best_weights_+1.0504_.hdf5")
     
     
     #VARIATIONAL AUTOENCODER
@@ -168,27 +159,9 @@ def benchmark_cbf():
                                'activation': 'elu', 
                                'pooling': [1, 1, 1, 1, 1, 1, 1, 1]}}
     aut = Autoencoder(verbose = False, **params)
-    _, _, autoencoder = aut.build()
-    autoencoder.load_weights("./final_models/cbf/cbf_autoencoder_20191106_144909_best_weights_+136.8745_.hdf5")
-    autoencoder_name = "vae"
-    results[autoencoder_name].append(autoencoder.evaluate(X_exp_train, X_exp_train)[1])
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(autoencoder.evaluate(X_exp_val, X_exp_val)[1])
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(autoencoder.evaluate(X_exp_test, X_exp_test)[1])
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(params["latent_dim"])
-    for i in range(12):
-        results[autoencoder_name].append(np.NaN)
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_train))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_val))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_test))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_train))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_val))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_test))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_train, keras = False))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_val, keras = False))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_test, keras = False))
+    _, _, vae_cnn = aut.build()
+    vae_cnn.load_weights("./final_models/cbf/cbf_autoencoder_20191106_144909_best_weights_+136.8745_.hdf5")
+    
     
     #DISCRIMINATIVE AUTOENCODER
     params = {'input_shape': (128, 1), 
@@ -204,28 +177,9 @@ def benchmark_cbf():
                                      'activation': 'relu'}, 
               'n_blocks_discriminator': 2}
     aut = DiscriminativeAutoencoder(verbose = False, **params)
-    _, _, _, autoencoder = aut.build()
-    autoencoder.load_weights("./final_models/cbf/cbf_autoencoder_20191106_150722_best_weights_+1.239848_.hdf5")
-    autoencoder_name = "discriminative_autoencoder"
-    results[autoencoder_name].append(mean_squared_error(X_exp_train.flatten(), autoencoder.predict(X_exp_train)[0].flatten()))
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(mean_squared_error(X_exp_val.flatten(), autoencoder.predict(X_exp_val)[0].flatten()))
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(mean_squared_error(X_exp_test.flatten(), autoencoder.predict(X_exp_test)[0].flatten()))
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(params["latent_dim"])
-    for i in range(12):
-        results[autoencoder_name].append(np.NaN)
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_train, discriminative = True))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_val, discriminative = True))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_test, discriminative = True))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_train, discriminative = True))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_val, discriminative = True))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_test, discriminative = True))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_train, keras = False, discriminative = True))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_val, keras = False, discriminative = True))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_test, keras = False, discriminative = True))
-    
+    _, _, _, aae_cnn = aut.build()
+    aae_cnn.load_weights("./final_models/cbf/cbf_autoencoder_20191106_150722_best_weights_+1.239848_.hdf5")
+     
     #VARIATIONAL DISCRIMINATIVE AUTOENCODER
     params = {'input_shape': (128, 1), 
               'n_blocks': 8, 
@@ -240,35 +194,51 @@ def benchmark_cbf():
                                      'activation': 'relu'}, 
               'n_blocks_discriminator': 2}
     aut = DiscriminativeAutoencoder(verbose = False, **params)
-    _, _, _, autoencoder = aut.build()
-    autoencoder.load_weights("./final_models/cbf/cbf_autoencoder_20191106_153613_best_weights_+1.179660_.hdf5")
-    autoencoder_name = "discriminative_vae"
-    results[autoencoder_name].append(mean_squared_error(X_exp_train.flatten(), autoencoder.predict(X_exp_train)[0].flatten()))
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(mean_squared_error(X_exp_val.flatten(), autoencoder.predict(X_exp_val)[0].flatten()))
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(mean_squared_error(X_exp_test.flatten(), autoencoder.predict(X_exp_test)[0].flatten()))
-    results[autoencoder_name].append(np.NaN)
-    results[autoencoder_name].append(params["latent_dim"])
-    for i in range(12):
-        results[autoencoder_name].append(np.NaN)
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_train, discriminative = True))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_val, discriminative = True))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_test, discriminative = True))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_train, discriminative = True))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_val, discriminative = True))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_test, discriminative = True))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_train, keras = False, discriminative = True))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_val, keras = False, discriminative = True))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_test, keras = False, discriminative = True))
+    _, _, _, avae_cnn = aut.build()
+    avae_cnn.load_weights("./final_models/cbf/cbf_autoencoder_20191106_153613_best_weights_+1.179660_.hdf5")
     
-    results_df = pd.DataFrame(results, index = results_rows)
-    results_df.to_csv("./final_models/" + dataset_name + "_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
-    return results_df
+    # STANDARD (LSTM) AUTOENCODER
+    ae_lstm = build_lstm_autoencoder(n_timesteps, 2)
+    ae_lstm.load_weights("./final_models/cbf/cbf_lstm_autoencoder_20191130_211845_best_weights_+6.900020_.hdf5")
+    
+    autoencoders = [(ae_cnn, "ae_cnn"),(vae_cnn, "vae_cnn"),(aae_cnn, "aae_cnn"),(avae_cnn, "avae_cnn"), (ae_lstm, "ae_lstm")]
+    
+    
+    for autoencoder in autoencoders:
+        for dataset in dataset_list_exp:
+            real = dataset[0]
+            if ("aae" in autoencoder[1]) or ("avae" in autoencoder[1]):
+                predicted = autoencoder[0].predict(real)[0]
+            else:
+                predicted = autoencoder[0].predict(real)
+            mse = mean_squared_error(real.flatten(), predicted.flatten())
+            results_autoencoders[autoencoder[1]].append(mse)
+            
+    for autoencoder in autoencoders:
+        for blackbox_predict in predicts:
+            for dataset in dataset_list_exp:
+                real = dataset[0]
+                real_class = blackbox_predict[0].predict(real)
+                if ("aae" in autoencoder[1]) or ("avae" in autoencoder[1]):
+                    predicted = autoencoder[0].predict(real)[0]
+                else:
+                    predicted = autoencoder[0].predict(real)
+                predicted_class = blackbox_predict[0].predict(predicted)
+                accuracy = accuracy_score(real_class, predicted_class)
+                results_autoencoders[autoencoder[1]].append(accuracy)
+                
+        
+    results_autoencoders_df = pd.DataFrame(results_autoencoders, index = results_autoencoders_rows)
+    
+    if save_output:
+        results_autoencoders_df.to_csv("./final_models/" + dataset_name + "_autoencoders_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+    
+    return results_blackboxes_df, results_autoencoders_df
+    
 
 
-
-def benchmark_HAR():
+def benchmark_HAR(save_output = False):
     random_state = 0
     dataset_name = "HARDataset"
     print(dataset_name)
@@ -331,47 +301,67 @@ def benchmark_HAR():
     print("TIMESTEPS: ", n_timesteps)
     print("N. LABELS: ", n_outputs)
     
-    results = {"resnet":[],
+    
+    
+    results_blackboxes = {"resnet":[],
                "simplecnn":[],
                "knn": [],
-               "autoencoder": []
               }
-    results_rows = ["train_mse", 
+    
+    results_blackboxes_rows = ["train_mse", 
                     "train_accuracy",
                     "validation_mse", 
                     "validation_accuracy",
                     "test_mse", 
                     "test_accuracy",
-                    "latent_dimension",
-                    "reconstruction_blackbox_accuracy_train",
-                    "reconstruction_blackbox_accuracy_validation",
-                    "reconstruction_blackbox_accuracy_test"
                    ]
+    dataset_list = [(X_train, y_train), (X_val, y_val), (X_test, y_test)]
+    dataset_list_exp = [(X_exp_train, y_exp_train), (X_exp_val, y_exp_val), (X_exp_test, y_exp_test)]
     
     resnet = build_resnet(n_timesteps, n_outputs)
     resnet.load_weights("./final_models/HARDataset/HARDataset_blackbox_resnet_20191028_172136_best_weights_+0.99_.hdf5")
-    results["resnet"].extend(resnet.evaluate(X_train, y_train))
-    results["resnet"].extend(resnet.evaluate(X_val, y_val))
-    results["resnet"].extend(resnet.evaluate(X_test, y_test))
-    results["resnet"].append(np.NaN)
+    resnet_predict = BlackboxPredictWrapper(resnet, 3)
     
     simplecnn = build_simple_CNN(n_timesteps, n_outputs)
     simplecnn.load_weights("./final_models/HARDataset/HARDataset_blackbox_simpleCNN_20191029_153407_best_weights_+0.94_.hdf5")
-    results["simplecnn"].extend(simplecnn.evaluate(X_train, y_train))
-    results["simplecnn"].extend(simplecnn.evaluate(X_val, y_val))
-    results["simplecnn"].extend(simplecnn.evaluate(X_test, y_test))
-    results["simplecnn"].append(np.NaN)
+    simplecnn_predict = BlackboxPredictWrapper(simplecnn, 3)
     
     knn = load("./final_models/HARDataset/HARDataset_blackbox_knn_20191031_111540.joblib")
-    results["knn"].append(mean_squared_error(y_train, knn.predict(X_train.reshape(X_train.shape[:2]))))
-    results["knn"].append(knn.score(X_train.reshape(X_train.shape[:2]), y_train))
-    results["knn"].append(mean_squared_error(y_val, knn.predict(X_val.reshape(X_val.shape[:2]))))
-    results["knn"].append(knn.score(X_val.reshape(X_val.shape[:2]), y_val))
-    results["knn"].append(mean_squared_error(y_test, knn.predict(X_test.reshape(X_test.shape[:2]))))
-    results["knn"].append(knn.score(X_test.reshape(X_test.shape[:2]), y_test))
-    results["knn"].append(np.NaN)
+    knn_predict = BlackboxPredictWrapper(knn, 2)
     
-    #params = load("./final_models/HARDataset/HARDataset_autoencoder_20191031_212226_best_weights_.pkl") bugged :(
+    predicts = [(resnet_predict, "resnet"), (simplecnn_predict, "simplecnn"), (knn_predict, "knn")]
+    blackboxes = [(resnet, "resnet"), (simplecnn, "simplecnn"), (knn, "knn")]
+    
+    for blackbox_predict in blackboxes:
+        for dataset in dataset_list:
+            real = dataset[1]
+            if blackbox_predict[1] in ["resnet", "simplecnn"]:
+                prediction = blackbox_predict[0].evaluate(dataset[0], real)
+                mse = prediction[0]
+                accuracy = prediction[1]
+            else:
+                accuracy = blackbox_predict[0].score(dataset[0].reshape(dataset[0].shape[:2]), real)
+                mse = mean_squared_error(real, blackbox_predict[0].predict(dataset[0].reshape(dataset[0].shape[:2])))
+            #print(prediction.shape)
+            results_blackboxes[blackbox_predict[1]].append(mse)
+            results_blackboxes[blackbox_predict[1]].append(accuracy)
+            
+    results_blackboxes_df = pd.DataFrame(results_blackboxes, index = results_blackboxes_rows)  
+
+    latent_dim = 50
+    results_autoencoders = {"ae_cnn": [latent_dim],
+               "ae_lstm": [latent_dim]
+              }
+    
+    results_autoencoders_rows = ["latent_dimension", "train_mse", "validation_mse", "test_mse"]
+    
+    
+    for blackbox_predict in predicts:
+        for X in ["train", "validation", "test"]:
+            key = "reconstruction_" + blackbox_predict[1] + "_" + X + "_accuracy"
+            results_autoencoders_rows.append(key)
+    
+    # STANDARD AUTOENCODER
     params = {"input_shape": (n_timesteps,1),
               "n_blocks": 8, 
               "latent_dim": 50,
@@ -383,33 +373,50 @@ def benchmark_HAR():
                                 "pooling":[1,1,1,1,1,1,1,1]}
              }
     aut = Autoencoder(verbose = False, **params)
-    _, _, autoencoder = aut.build()
-    autoencoder.load_weights("./final_models/HARDataset/HARDataset_autoencoder_20191031_212226_best_weights_+0.008519_.hdf5")
-    results["autoencoder"].append(autoencoder.evaluate(X_exp_train, X_exp_train))
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(autoencoder.evaluate(X_exp_val, X_exp_val))
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(autoencoder.evaluate(X_exp_test, X_exp_test))
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(params["latent_dim"])
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(np.NaN)
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_train))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_val))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_test))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_train))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_val))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_test))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_train, keras = False))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_val, keras = False))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_test, keras = False))
+    _, _, ae_cnn = aut.build()
+    ae_cnn.load_weights("./final_models/HARDataset/HARDataset_autoencoder_20191031_212226_best_weights_+0.008519_.hdf5")
     
-    results_df = pd.DataFrame(results, index = results_rows)
-    results_df.to_csv("./final_models/" + dataset_name + "_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
-    return results_df
+    # STANDARD (LSTM) AUTOENCODER
+    ae_lstm = build_lstm_autoencoder(n_timesteps, latent_dim)
+    ae_lstm.load_weights("./final_models/HARDataset/HARDataset_lstm_autoencoder_20191130_093909_best_weights_+0.070170_.hdf5")
+    
+    autoencoders = [(ae_cnn, "ae_cnn"),(ae_lstm, "ae_lstm")]
+    
+    
+    for autoencoder in autoencoders:
+        for dataset in dataset_list_exp:
+            real = dataset[0]
+            if ("aae" in autoencoder[1]) or ("avae" in autoencoder[1]):
+                predicted = autoencoder[0].predict(real)[0]
+            else:
+                predicted = autoencoder[0].predict(real)
+            mse = mean_squared_error(real.flatten(), predicted.flatten())
+            results_autoencoders[autoencoder[1]].append(mse)
+            
+    for autoencoder in autoencoders:
+        for blackbox_predict in predicts:
+            for dataset in dataset_list_exp:
+                real = dataset[0]
+                real_class = blackbox_predict[0].predict(real)
+                if ("aae" in autoencoder[1]) or ("avae" in autoencoder[1]):
+                    predicted = autoencoder[0].predict(real)[0]
+                else:
+                    predicted = autoencoder[0].predict(real)
+                predicted_class = blackbox_predict[0].predict(predicted)
+                accuracy = accuracy_score(real_class, predicted_class)
+                results_autoencoders[autoencoder[1]].append(accuracy)
+                
+        
+    results_autoencoders_df = pd.DataFrame(results_autoencoders, index = results_autoencoders_rows)
+    
+    if save_output:
+        results_autoencoders_df.to_csv("./final_models/" + dataset_name + "_autoencoders_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+    
+    return results_blackboxes_df, results_autoencoders_df
 
-def benchmark_phalanges():
+
+def benchmark_phalanges(save_output = False):
     random_state = 0
     dataset_path = "./datasets/PhalangesOutlinesCorrect/"
     dataset_name = "phalanges"
@@ -462,46 +469,67 @@ def benchmark_phalanges():
     print("TIMESTEPS: ", n_timesteps)
     print("N. LABELS: ", n_outputs)
     
-    results = {"resnet":[],
+    
+    
+    results_blackboxes = {"resnet":[],
                "simplecnn":[],
                "knn": [],
-               "autoencoder": []
               }
-    results_rows = ["train_mse", 
+    
+    results_blackboxes_rows = ["train_mse", 
                     "train_accuracy",
                     "validation_mse", 
                     "validation_accuracy",
                     "test_mse", 
                     "test_accuracy",
-                    "latent_dimension",
-                    "reconstruction_blackbox_accuracy_train",
-                    "reconstruction_blackbox_accuracy_validation",
-                    "reconstruction_blackbox_accuracy_test"
                    ]
+    dataset_list = [(X_train, y_train), (X_val, y_val), (X_test, y_test)]
+    dataset_list_exp = [(X_exp_train, y_exp_train), (X_exp_val, y_exp_val), (X_exp_test, y_exp_test)]
     
     resnet = build_resnet(n_timesteps, n_outputs)
     resnet.load_weights("./final_models/phalanges/phalanges_blackbox_resnet_20191101_164247_best_weights_+0.86_.hdf5")
-    results["resnet"].extend(resnet.evaluate(X_train, y_train))
-    results["resnet"].extend(resnet.evaluate(X_val, y_val))
-    results["resnet"].extend(resnet.evaluate(X_test, y_test))
-    results["resnet"].append(np.NaN)
+    resnet_predict = BlackboxPredictWrapper(resnet, 3)
     
     simplecnn = build_simple_CNN(n_timesteps, n_outputs)
     simplecnn.load_weights("./final_models/phalanges/phalanges_blackbox_simpleCNN_20191101_170209_best_weights_+0.83_.hdf5")
-    results["simplecnn"].extend(simplecnn.evaluate(X_train, y_train))
-    results["simplecnn"].extend(simplecnn.evaluate(X_val, y_val))
-    results["simplecnn"].extend(simplecnn.evaluate(X_test, y_test))
-    results["simplecnn"].append(np.NaN)
+    simplecnn_predict = BlackboxPredictWrapper(simplecnn, 3)
     
     knn = load("./final_models/phalanges/phalanges_blackbox_knn_20191101_171534.joblib")
-    results["knn"].append(mean_squared_error(y_train, knn.predict(X_train.reshape(X_train.shape[:2]))))
-    results["knn"].append(knn.score(X_train.reshape(X_train.shape[:2]), y_train))
-    results["knn"].append(mean_squared_error(y_val, knn.predict(X_val.reshape(X_val.shape[:2]))))
-    results["knn"].append(knn.score(X_val.reshape(X_val.shape[:2]), y_val))
-    results["knn"].append(mean_squared_error(y_test, knn.predict(X_test.reshape(X_test.shape[:2]))))
-    results["knn"].append(knn.score(X_test.reshape(X_test.shape[:2]), y_test))
-    results["knn"].append(np.NaN)
+    knn_predict = BlackboxPredictWrapper(knn, 2)
     
+    predicts = [(resnet_predict, "resnet"), (simplecnn_predict, "simplecnn"), (knn_predict, "knn")]
+    blackboxes = [(resnet, "resnet"), (simplecnn, "simplecnn"), (knn, "knn")]
+    
+    for blackbox_predict in blackboxes:
+        for dataset in dataset_list:
+            real = dataset[1]
+            if blackbox_predict[1] in ["resnet", "simplecnn"]:
+                prediction = blackbox_predict[0].evaluate(dataset[0], real)
+                mse = prediction[0]
+                accuracy = prediction[1]
+            else:
+                accuracy = blackbox_predict[0].score(dataset[0].reshape(dataset[0].shape[:2]), real)
+                mse = mean_squared_error(real, blackbox_predict[0].predict(dataset[0].reshape(dataset[0].shape[:2])))
+            #print(prediction.shape)
+            results_blackboxes[blackbox_predict[1]].append(mse)
+            results_blackboxes[blackbox_predict[1]].append(accuracy)
+            
+    results_blackboxes_df = pd.DataFrame(results_blackboxes, index = results_blackboxes_rows)  
+
+    latent_dim = 40
+    results_autoencoders = {"ae_cnn": [latent_dim],
+               "ae_lstm": [latent_dim]
+              }
+    
+    results_autoencoders_rows = ["latent_dimension", "train_mse", "validation_mse", "test_mse"]
+    
+    
+    for blackbox_predict in predicts:
+        for X in ["train", "validation", "test"]:
+            key = "reconstruction_" + blackbox_predict[1] + "_" + X + "_accuracy"
+            results_autoencoders_rows.append(key)
+    
+    # STANDARD AUTOENCODER
     params = {"input_shape": (n_timesteps,1),
               "n_blocks": 8, 
               "latent_dim": 40,
@@ -513,27 +541,44 @@ def benchmark_phalanges():
                                 "pooling":[1,1,1,1,1,1,1,2]}
              }
     aut = Autoencoder(verbose = False, **params)
-    _, _, autoencoder = aut.build()
-    autoencoder.load_weights("./final_models/phalanges/phalanges_autoencoder_20191103_211535_best_weights_+0.0010_.hdf5")
-    results["autoencoder"].append(autoencoder.evaluate(X_exp_train, X_exp_train))
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(autoencoder.evaluate(X_exp_val, X_exp_val))
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(autoencoder.evaluate(X_exp_test, X_exp_test))
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(params["latent_dim"])
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(np.NaN)
-    results["autoencoder"].append(np.NaN)
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_train))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_val))
-    results["resnet"].append(reconstruction_blackbox_consistency(autoencoder, resnet, X_exp_test))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_train))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_val))
-    results["simplecnn"].append(reconstruction_blackbox_consistency(autoencoder, simplecnn, X_exp_test))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_train, keras = False))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_val, keras = False))
-    results["knn"].append(reconstruction_blackbox_consistency(autoencoder, knn, X_exp_test, keras = False))
-    results_df = pd.DataFrame(results, index = results_rows)
-    results_df.to_csv("./final_models/" + dataset_name + "_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
-    return results_df
+    _, _, ae_cnn = aut.build()
+    ae_cnn.load_weights("./final_models/phalanges/phalanges_autoencoder_20191103_211535_best_weights_+0.0010_.hdf5")
+    
+    # STANDARD (LSTM) AUTOENCODER
+    ae_lstm = build_lstm_autoencoder(n_timesteps, latent_dim)
+    ae_lstm.load_weights("./final_models/phalanges/phalanges_lstm_autoencoder_20191130_214525_best_weights_+0.014177_.hdf5")
+    
+    autoencoders = [(ae_cnn, "ae_cnn"),(ae_lstm, "ae_lstm")]
+    
+    
+    for autoencoder in autoencoders:
+        for dataset in dataset_list_exp:
+            real = dataset[0]
+            if ("aae" in autoencoder[1]) or ("avae" in autoencoder[1]):
+                predicted = autoencoder[0].predict(real)[0]
+            else:
+                predicted = autoencoder[0].predict(real)
+            mse = mean_squared_error(real.flatten(), predicted.flatten())
+            results_autoencoders[autoencoder[1]].append(mse)
+            
+    for autoencoder in autoencoders:
+        for blackbox_predict in predicts:
+            for dataset in dataset_list_exp:
+                real = dataset[0]
+                real_class = blackbox_predict[0].predict(real)
+                if ("aae" in autoencoder[1]) or ("avae" in autoencoder[1]):
+                    predicted = autoencoder[0].predict(real)[0]
+                else:
+                    predicted = autoencoder[0].predict(real)
+                predicted_class = blackbox_predict[0].predict(predicted)
+                accuracy = accuracy_score(real_class, predicted_class)
+                results_autoencoders[autoencoder[1]].append(accuracy)
+                
+        
+    results_autoencoders_df = pd.DataFrame(results_autoencoders, index = results_autoencoders_rows)
+    
+    if save_output:
+        results_autoencoders_df.to_csv("./final_models/" + dataset_name + "_autoencoders_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+    
+    return results_blackboxes_df, results_autoencoders_df

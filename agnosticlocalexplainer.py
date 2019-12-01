@@ -893,15 +893,18 @@ if __name__ == '__main__':
     agnostic.LOREM_tree_rules_extraction()
     agnostic.build_rules_dataframes()
     
-    params = {"background": "linear_consecutive", "nsamples":300, "optimizer": keras.optimizers.Adagrad(lr=.1), "multishap_n":50}
+    params = {"background": "linear_consecutive", 
+              "nsamples":300, 
+              "optimizer": keras.optimizers.Adam(),#keras.optimizers.Adagrad(lr=.1), 
+              "multishap_n":50}
     
     agnostic.plot_explanation( 
-                         rules = False, 
+                         rules = True, 
                          heatmap = False, 
-                         shap_explanation = True, 
-                         shapelet_explanation = False,
+                         shap_explanation = False, 
+                         shapelet_explanation = True,
                          latent_space = False,
-                         multi_shap_explanation = True,
+                         multi_shap_explanation = False,
                          figsize = (20,3),
                          VAE_2d = False,
                          **params
