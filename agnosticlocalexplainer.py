@@ -414,6 +414,48 @@ class AgnosticLocalExplainer(object):
             plt.colorbar(mapper)
             plt.show()
             
+    def plot_shap_by_class(self, rules_tss, rules_shap_values, rules_segmentations, figsize = (20,3)):
+        colors_lists = []
+        segment_lists = []
+        for i, shap_values in enumerate(rules_shap_values):
+            colors_list = []
+            
+            flat_shap = np.ravel(np.array(shap_values))
+            minima = flat_shap.min()
+            maxima = flat_shap.max()
+            
+            # these are here to avoid error in case there aren't values under or over 0 (for DiverginNorm)
+            if minima == 0: minima -= sys.float_info.epsilon
+            if maxima == 0: maxima += sys.float_info.epsilon
+        
+            norm = matplotlib.colors.DivergingNorm(vmin=minima, vcenter=0, vmax=maxima)
+            mapper = cm.ScalarMappable(norm=norm, cmap=cm.coolwarm)
+        
+            for shap_array in shap_values:
+                colors = []
+                for shap_value in shap_array.ravel():
+                    colors.append(mapper.to_rgba(shap_value))
+                colors_list.append(colors)
+        
+            segment_list = self.generate_segment_list(rules_segmentations[i])
+            colors_lists.append(colors_list)
+            segment_lists.append(segment_list)
+        
+        for j in range(len(rules_shap_values[0])): # for every class
+            for k, ts in enumerate(rules_tss): # for every ts
+                segment_list = segment_lists[k]
+                colors_list = colors_lists[k]
+                plt.figure(figsize = figsize)
+                for i, segment in enumerate(segment_list): # for every segment in the ts
+                    seg = pd.Series(ts.ravel())[segment[0]:segment[1]+1]
+                    if self.labels:
+                        plt.title("Class: " + self.labels[j])
+                    else:
+                        plt.title("Class: " + str(j))
+                    plt.plot(seg, c = colors_list[j][i])
+                plt.colorbar(mapper)
+                plt.show()
+            
     def shap_ts(self, 
                 ts, 
                 classifier, 
@@ -451,15 +493,13 @@ class AgnosticLocalExplainer(object):
         
         shap_values = explainer.shap_values(np.ones((1,len(result))), nsamples=nsamples)
         #self.shap_output_data.append(self.mask_ts(explainer.synth_data, result, ts, background))
-        if plot:
-            self.plot_shap(ts, shap_values, result, figsize = figsize)
-        return shap_values
+        return shap_values, result
     
     
     def multi_shap(self, 
                    dataset, 
                    n = -1, 
-                   figsize = (8,8), 
+                   figsize = (20,3), 
                    nsamples = 1000,
                    background = "linear",
                    pen = 1,
@@ -474,20 +514,24 @@ class AgnosticLocalExplainer(object):
         else:
             sample_dataset = dataset
         shap_values_array = []
+        segmentations = []
         for ts in sample_dataset:
-            shap_values = self.shap_ts(ts = ts, 
+            shap_values, segmentation = self.shap_ts(ts = ts, 
                         classifier = self.blackbox, 
                         input_dim = self.blackbox_input_dimensions,
                         nsamples = nsamples,
                         background = background,
                         pen = pen,
                         model = model,
-                        jump = jump,
-                        plot = False
+                        plot = False,
+                        jump = jump
                         )
+            segmentations.append(segmentation)
             shap_values = np.array(shap_values)
             shap_values = shap_values.reshape(shap_values.shape[0],shap_values.shape[2])
             shap_values_array.append(shap_values)
+            
+        self.plot_multi_shap(sample_dataset, shap_values_array, segmentations, figsize = figsize)
         #return shap_values_array
         max_len = 0
         for shap_values in shap_values_array:
@@ -499,10 +543,56 @@ class AgnosticLocalExplainer(object):
                 padding = max_len - shap_values.shape[1]
                 shap_values_array[i] = np.pad(shap_values_array[i], ((0, 0), (0, padding)), 'constant', constant_values = 0)
         shap_values_array = np.array(shap_values_array)
+        
+        
         shap_values_array = np.transpose(shap_values_array, (1, 0, 2))
-        self.shap_heatmap(shap_values_array, figsize = figsize)
+        self.shap_heatmap(shap_values_array, figsize = (8,8))
             
+    def plot_multi_shap(self, dataset, shap_values_array, segmentations, figsize = (20,3)):
+        # (batch, classes, 1, segments)
+        colors_lists = []
+        segment_lists = []
+        for i, shap_values in enumerate(shap_values_array):
+            colors_list = []
             
+            flat_shap = np.ravel(np.array(shap_values))
+            minima = flat_shap.min()
+            maxima = flat_shap.max()
+            
+            # these are here to avoid error in case there aren't values under or over 0 (for DiverginNorm)
+            if minima == 0: minima -= sys.float_info.epsilon
+            if maxima == 0: maxima += sys.float_info.epsilon
+        
+            norm = matplotlib.colors.DivergingNorm(vmin=minima, vcenter=0, vmax=maxima)
+            mapper = cm.ScalarMappable(norm=norm, cmap=cm.coolwarm)
+        
+            for shap_array in shap_values:
+                colors = []
+                for shap_value in shap_array.ravel():
+                    colors.append(mapper.to_rgba(shap_value))
+                colors_list.append(colors)
+        
+            segment_list = self.generate_segment_list(segmentations[i])
+            colors_lists.append(colors_list)
+            segment_lists.append(segment_list)
+        
+        # for every class
+        # for every ts
+        # for every segment in ts plot segment
+        for j in range(len(shap_values_array[0])): # for every class
+            plt.figure(figsize = figsize)
+            for k, ts in enumerate(dataset): # for every ts
+                segment_list = segment_lists[k]
+                colors_list = colors_lists[k]
+                for i, segment in enumerate(segment_list): # for every segment in the ts
+                    seg = pd.Series(ts.ravel())[segment[0]:segment[1]+1]
+                    if self.labels:
+                        plt.title("Class: " + self.labels[j])
+                    else:
+                        plt.title("Class: " + str(j))
+                    plt.plot(seg, c = colors_list[j][i])
+            #plt.colorbar(mapper)
+            plt.show()
     
     def shap_heatmap(self, shap_values_array, figsize = (8,8)):
         # shap_values_array -> 3d: (classes, batch, segments)
@@ -558,25 +648,41 @@ class AgnosticLocalExplainer(object):
             for rule in self.rules_dataframes.keys():
                 mean_df.append(self.rules_dataframes[rule]["df"].mean(axis = 0))
             mean_df = np.array(mean_df)
+            rules_shap_values = []
+            rules_segmentations = []
             for i, mean_ts in enumerate(mean_df):
                 print(list(self.rules_dataframes.keys())[i])
-                self.shap_ts(ts = mean_ts, 
-                        classifier = self.blackbox, 
-                        input_dim = self.blackbox_input_dimensions, 
-                        figsize = figsize, 
-                        nsamples = params.get("nsamples", 1000),
-                        background = params.get("background", "linear"),
-                        pen = params.get("pen", 1),
-                        model = params.get("peltmodel", "rbf"),
-                        jump = params.get("jump", 5)
-                        )
+                shap_values, segmentation = self.shap_ts(ts = mean_ts, 
+                                                         classifier = self.blackbox, 
+                                                         input_dim = self.blackbox_input_dimensions, 
+                                                         figsize = figsize, 
+                                                         nsamples = params.get("nsamples", 1000),
+                                                         background = params.get("background", "linear"),
+                                                         pen = params.get("pen", 1),
+                                                         model = params.get("peltmodel", "rbf"),
+                                                         jump = params.get("jump", 5)
+                                                         )
+                if params.get("shap_by_class", False):
+                    rules_shap_values.append(shap_values)
+                    rules_segmentations.append(segmentation)
+                self.plot_shap(ts = mean_ts, 
+                               shap_values = shap_values, 
+                               segmentation = segmentation, 
+                               figsize = figsize)
+            if params.get("shap_by_class", False):
+                print("SHAP by class")
+                self.plot_shap_by_class(mean_df,
+                                        rules_shap_values,
+                                        rules_segmentations,
+                                        figsize = figsize
+                                        )
         
         if multi_shap_explanation:
             for rule in self.rules_dataframes.keys():
                 print(rule)
                 self.multi_shap(self.rules_dataframes[rule]["df"], 
                                 n = params.get("multishap_n", -1), 
-                                figsize = (8,8), 
+                                figsize = figsize, 
                                 nsamples = params.get("nsamples", 1000),
                                 background = params.get("background", "linear"),
                                 pen = params.get("pen", 1),
@@ -895,16 +1001,17 @@ if __name__ == '__main__':
     
     params = {"background": "linear_consecutive", 
               "nsamples":300, 
+              "shap_by_class" : False,
               "optimizer": keras.optimizers.Adam(),#keras.optimizers.Adagrad(lr=.1), 
               "multishap_n":50}
     
     agnostic.plot_explanation( 
                          rules = True, 
                          heatmap = False, 
-                         shap_explanation = False, 
-                         shapelet_explanation = True,
+                         shap_explanation = True, 
+                         shapelet_explanation = False,
                          latent_space = False,
-                         multi_shap_explanation = False,
+                         multi_shap_explanation = True,
                          figsize = (20,3),
                          VAE_2d = False,
                          **params

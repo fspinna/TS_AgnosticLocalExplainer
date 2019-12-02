@@ -351,6 +351,7 @@ def benchmark_HAR(save_output = False):
     latent_dim = 50
     results_autoencoders = {"ae_cnn": [latent_dim],
                             "vae_cnn": [latent_dim],
+                            "aae_cnn": [latent_dim],
                "ae_lstm": [latent_dim]
               }
     
@@ -392,11 +393,28 @@ def benchmark_HAR(save_output = False):
     _, _, vae_cnn = aut.build()
     vae_cnn.load_weights("./final_models/HARDataset/HARDataset_autoencoder_20191201_153104_best_weights_+17.406494_.hdf5")
     
+    #DISCRIMINATIVE AUTOENCODER
+    params = {"input_shape": (561,1),
+              "n_blocks": 8, 
+              "latent_dim": 50,
+              "encoder_latent_layer_type": "dense",
+              "encoder_args": {"filters":[2,4,8,16,32,64,128,256], 
+                                "kernel_size":[21,18,15,13,11,8,5,3], 
+                                "padding":"same", 
+                                "activation":"selu", 
+                                "pooling":[1,1,1,1,1,1,1,1]},
+              "discriminator_args": {"units": [100,100],
+                                     "activation": "relu"},
+              "n_blocks_discriminator": 2}
+    aut = DiscriminativeAutoencoder(verbose = False, **params)
+    _, _, _, aae_cnn = aut.build()
+    aae_cnn.load_weights("./final_models/HARDataset/HARDataset_autoencoder_20191202_best_weights_+0.007953_.hdf5")
+    
     # STANDARD (LSTM) AUTOENCODER
     ae_lstm = build_lstm_autoencoder(n_timesteps, latent_dim)
     ae_lstm.load_weights("./final_models/HARDataset/HARDataset_lstm_autoencoder_20191130_093909_best_weights_+0.070170_.hdf5")
     
-    autoencoders = [(ae_cnn, "ae_cnn"),(vae_cnn, "vae_cnn"),(ae_lstm, "ae_lstm")]
+    autoencoders = [(ae_cnn, "ae_cnn"),(vae_cnn, "vae_cnn"),(aae_cnn, "aae_cnn"),(ae_lstm, "ae_lstm")]
     
     
     for autoencoder in autoencoders:
@@ -535,6 +553,7 @@ def benchmark_phalanges(save_output = False):
     latent_dim = 40
     results_autoencoders = {"ae_cnn": [latent_dim],
                             "vae_cnn": [latent_dim],
+                            "aae_cnn": [latent_dim],
                "ae_lstm": [latent_dim]
               }
     
@@ -576,12 +595,28 @@ def benchmark_phalanges(save_output = False):
     _, _, vae_cnn = aut.build()
     vae_cnn.load_weights("./final_models/phalanges/phalanges_autoencoder_20191201_145321_best_weights_+2.9536_.hdf5")
     
+    #DISCRIMINATIVE AUTOENCODER
+    params = {'input_shape': (80, 1), 
+              'n_blocks': 8, 
+              'latent_dim': 40, 
+              'encoder_latent_layer_type': 'simple', 
+              'encoder_args': {'filters': [2, 4, 8, 16, 32, 64, 128, 256], 
+                               'kernel_size': [21, 18, 15, 13, 11, 8, 5, 3], 
+                               'padding': 'same', 
+                               'activation': 'elu', 
+                               'pooling': [1, 1, 1, 1, 1, 1, 1, 2]}, 
+                               'discriminator_args': {'units': [100, 100], 'activation': 'relu'}, 
+                               'n_blocks_discriminator': 2}
+    aut = DiscriminativeAutoencoder(verbose = False, **params)
+    _, _, _, aae_cnn = aut.build()
+    aae_cnn.load_weights("./final_models/phalanges/phalanges_autoencoder_20191202_133021_best_weights_+0.001379_.hdf5")
+    
     
     # STANDARD (LSTM) AUTOENCODER
     ae_lstm = build_lstm_autoencoder(n_timesteps, latent_dim)
     ae_lstm.load_weights("./final_models/phalanges/phalanges_lstm_autoencoder_20191130_214525_best_weights_+0.014177_.hdf5")
     
-    autoencoders = [(ae_cnn, "ae_cnn"),(vae_cnn, "vae_cnn"),(ae_lstm, "ae_lstm")]
+    autoencoders = [(ae_cnn, "ae_cnn"),(vae_cnn, "vae_cnn"),(aae_cnn, "aae_cnn"),(ae_lstm, "ae_lstm")]
     
     
     for autoencoder in autoencoders:
