@@ -37,6 +37,8 @@ class Rule(object):
         self.class_name = class_name
 
     def _pstr(self):
+        if len(self.premises) == 0:
+            return '{ }'
         return '{ %s }' % (', '.join([str(p) for p in self.premises]))
 
     def _cstr(self):
@@ -269,7 +271,6 @@ def get_counterfactual_rules(x, y, dt, Z, Y, feature_names, class_name, class_va
     delta_list = list()
     Z1 = Z[np.where(Y != y)[0]]
     xd = vector2dict(x, feature_names)
-    xc_list = []
     for z in Z1:
         crule = get_rule(z, dt, feature_names, class_name, class_values, numeric_columns, multi_label)
         delta, qlen = get_falsified_conditions(xd, crule)
@@ -277,7 +278,7 @@ def get_counterfactual_rules(x, y, dt, Z, Y, feature_names, class_name, class_va
             is_feasible = check_feasibility_of_falsified_conditions(delta, unadmittible_features)
             if not is_feasible:
                 continue
-        """
+
         if bb_predict is not None:
             xc = apply_counterfactual(x, delta, feature_names, features_map, features_map_inv, numeric_columns)
             bb_outcomec = bb_predict(xc.reshape(1, -1))[0]
@@ -296,12 +297,6 @@ def get_counterfactual_rules(x, y, dt, Z, Y, feature_names, class_name, class_va
                     if delta not in delta_list:
                         crule_list.append(crule)
                         delta_list.append(delta)
-        """
-        if bb_predict is not None:
-            xc = apply_counterfactual(x, delta, feature_names, features_map, features_map_inv, numeric_columns)
-            xc_list.append(xc)
-        
-        
         else:
             if qlen < clen:
                 clen = qlen
@@ -312,25 +307,6 @@ def get_counterfactual_rules(x, y, dt, Z, Y, feature_names, class_name, class_va
                 if delta not in delta_list:
                     crule_list.append(crule)
                     delta_list.append(delta)
-    if not len(xc_list) == 0:
-        if bb_predict is not None:
-            bb_outcomecs = bb_predict(np.array(xc_list))
-            for bb_outcomec in bb_outcomecs:
-                bb_outcomec = class_values[bb_outcomec] if isinstance(class_name, str) else multilabel2str(bb_outcomec,
-                                                                                                           class_values)
-                dt_outcomec = crule.cons
-                # print(bb_outcomec, dt_outcomec, bb_outcomec == dt_outcomec)
-            
-                if bb_outcomec == dt_outcomec:
-                    if qlen < clen:
-                        clen = qlen
-                        crule_list = [crule]
-                        delta_list = [delta]
-                    elif qlen == clen:
-                        # print([[str(s1) for s1 in s] for s in delta_list])
-                        if delta not in delta_list:
-                            crule_list.append(crule)
-                            delta_list.append(delta)
 
     return crule_list, delta_list
 

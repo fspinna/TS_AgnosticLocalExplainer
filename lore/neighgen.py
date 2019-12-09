@@ -107,92 +107,7 @@ class RandomGenerator(NeighborhoodGenerator):
         Z = super(RandomGenerator, self).balance_neigh(x, Z, num_samples)
         Z[0] = x.copy()
         return Z
-    
-class RandomGeneratorNsynth(NeighborhoodGenerator):
 
-    def __init__(self, bb_predict, feature_values, features_map, nbr_features, nbr_real_features,
-                 numeric_columns_index, K, ocr=0.1):
-        super(RandomGeneratorNsynth, self).__init__(bb_predict, feature_values, features_map, nbr_features, nbr_real_features,
-                                              numeric_columns_index, ocr)
-        self.K = K
-     
-    def generate(self, x, num_samples=1000):
-        Z = []
-        def nsynth_instancegen(index_ratio = 0.1, weights_gen = "variable"):
-            indexes = np.random.randint(0, len(self.K), (np.random.randint(2,round(len(self.K)*index_ratio))))
-            if weights_gen == "variable":
-                weights = np.random.randint(1,11, len(indexes))
-            elif weights == "uniform":
-                weights = np.ones(len(indexes))
-            z = np.average(self.K[indexes], axis = 0, weights = weights)
-            return z
-        for i in range(num_samples):
-            z = nsynth_instancegen()
-            Z.append(z)
-        #Z = super(RandomGeneratorNsynth, self).balance_neigh(x, np.array(Z), num_samples)
-        Z = np.array(Z)
-        Z[0] = x.copy()
-        return Z
-
-    
-class MixingGeneratorNsynth(NeighborhoodGenerator):
-
-    def __init__(self, bb_predict, feature_values, features_map, nbr_features, nbr_real_features,
-                 numeric_columns_index, K, ocr=0.1):
-        super(MixingGeneratorNsynth, self).__init__(bb_predict, feature_values, features_map, nbr_features, nbr_real_features,
-                                              numeric_columns_index, ocr)
-        self.K = K
-        self.K_labels = bb_predict(K)
-    """
-    def generate(self, x, num_samples=1000):
-        x_label = self.bb_predict(x.reshape(1,-1))[0]
-        array_by_label = dict()
-        for label in np.unique(self.K_labels):
-            array_by_label[label] = self.K[np.argwhere(self.K_labels==label).ravel()]
-        n_steps = 20
-        Z = []
-        n_labels = len(array_by_label)
-        for i in range(n_labels):
-            for j in range(round(num_samples/(n_labels*n_steps))):
-                random_instance_to_explain_label_index = np.random.randint(0, len(array_by_label[x_label]))
-                random_instance_to_explain_label = array_by_label[x_label][random_instance_to_explain_label_index]
-                
-                random_i_label_index = np.random.randint(0, len(array_by_label[i]))
-                random_i_label = array_by_label[i][random_i_label_index]
-                for weight in range(n_steps):
-                    weight = weight/n_steps
-                    #print(0+weight, " ",1-weight)
-                    #z = np.average(np.array([random_instance_to_explain_label, random_i_label]), axis = 0, weights=[0+weight,1-weight])
-                    z = np.average(np.array([random_instance_to_explain_label, random_i_label]), axis = 0, weights=[1+weight,1-weight])
-                    Z.append(z)
-        return np.array(Z)
-    """
-    def generate(self, x, num_samples=1000):
-        x_label = self.bb_predict(x.reshape(1,-1))[0]
-        #print("x_label: ", x_label)
-        array_by_label = dict()
-        for label in np.unique(self.K_labels):
-            array_by_label[label] = self.K[np.argwhere(self.K_labels==label).ravel()]
-        n_steps = 20
-        Z = []
-        n_labels = len(array_by_label)
-        for i in range(n_labels):
-            for j in range(round(num_samples/(n_labels*n_steps))):
-                for weight in range(n_steps):
-                    random_instance_to_explain_label_index = np.random.randint(0, len(array_by_label[x_label]))
-                    random_instance_to_explain_label = array_by_label[x_label][random_instance_to_explain_label_index]
-                    random_i_label_index = np.random.randint(0, len(array_by_label[i]))
-                    random_i_label = array_by_label[i][random_i_label_index]
-                    weight = weight/n_steps
-                    #print(0+weight, " ",1-weight)
-                    #z = np.average(np.array([random_instance_to_explain_label, random_i_label]), axis = 0, weights=[0+weight,1-weight])
-                    z = np.average(np.array([random_instance_to_explain_label, random_i_label]), axis = 0, weights=[4+weight,1-weight])
-                    Z.append(z)
-        Z = np.array(Z)
-        Z[0] = x.copy()
-        return Z
-    
- 
 
 class GeneticGenerator(NeighborhoodGenerator):
 
@@ -212,7 +127,7 @@ class GeneticGenerator(NeighborhoodGenerator):
         self.verbose = verbose
         random.seed(random_seed)
 
-    def generate(self, x, num_samples=1000):
+    def generate(self, x, num_samples=1000, return_logbooks=False):
         num_samples_eq = int(np.round(num_samples * 0.5))
         num_samples_noteq = int(np.round(num_samples * 0.5))
 
@@ -237,6 +152,10 @@ class GeneticGenerator(NeighborhoodGenerator):
 
         Z = super(GeneticGenerator, self).balance_neigh(x, Z, num_samples)
         Z[0] = x.copy()
+
+        if return_logbooks:
+            return Z, [logbook_eq, logbook_noteq]
+
         return Z
 
     def add_halloffame(self, population, halloffame):

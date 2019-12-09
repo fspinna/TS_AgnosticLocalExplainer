@@ -18,8 +18,7 @@ import sys
 from sklearn.decomposition import PCA #Principal Component Analysis
 from scipy.stats import norm
 from agnosticglobalexplainer import AgnosticGlobalExplainer
-from sklearn.metrics import accuracy_score
-
+from sklearn.metrics import accuracy_score, pairwise_distances
 
 class AgnosticLocalExplainer(object):
     def __init__(self, 
@@ -69,6 +68,8 @@ class AgnosticLocalExplainer(object):
         self.instance_to_explain_latent = self.X_explanation_latent[self.index_to_explain].ravel() 
         self.instance_to_explain = self.X_explanation[self.index_to_explain].ravel() 
         self.instance_to_explain_class = self.y_explanation[self.index_to_explain]
+        self.instance_to_explain_blackbox_class = self.blackbox_predict(self.instance_to_explain.reshape(1,-1,1))[0]
+        
         
         self.LOREM_Explanation = None
 
@@ -89,7 +90,7 @@ class AgnosticLocalExplainer(object):
         self.decoder_count += 1 # for debug only
         
         decoded = self.decoder.predict(X)
-
+        
         prediction = self.blackbox_predict(decoded)
     
         return prediction
@@ -108,14 +109,34 @@ class AgnosticLocalExplainer(object):
         prediction = prediction.ravel() 
     
         return prediction
+    
+    def blackbox_predict_proba(self, X):
+        # X: 3d array (batch, timesteps, 1)
+        if self.blackbox_input_dimensions == 2:
+            X = X.reshape(X.shape[0], X.shape[1]) # 3d to 2d array (batch, timesteps)
+            prediction = self.blackbox.predict_proba(X)
+        else: prediction = self.blackbox.predict(X)
+        return prediction
+    
+    def blackbox_decode_and_predict_proba(self, X):
+        # X: 3d array
+        # decode the latent space and apply the blackbox
+        
+        self.decoder_count += 1 # for debug only
+        
+        decoded = self.decoder.predict(X)
+        
+        prediction = self.blackbox_predict_proba(decoded)
+    
+        return prediction
         
     def check_autoencoder_blackbox_consistency(self): 
         # checks if the class of the autoencoded instance is the same as the orginal instance class
-        check = self.instance_to_explain_class == (
+        check =  self.instance_to_explain_blackbox_class == (
             self.blackbox_decode_and_predict(self.instance_to_explain_latent.reshape(1,-1))[0])
         print("original class == reconstructed class ---> ", check)
         if check: print("Class: ", 
-                        self.instance_to_explain_class if not self.labels else self.labels[self.instance_to_explain_class] + " ({})".format(self.instance_to_explain_class))
+                        self.instance_to_explain_blackbox_class if not self.labels else self.labels[self.instance_to_explain_blackbox_class] + " ({})".format(self.instance_to_explain_blackbox_class))
         
     def LOREM_neighborhood_generation(self, 
                           neigh_type = 'rndgen', 
@@ -139,7 +160,8 @@ class AgnosticLocalExplainer(object):
         X_explanation_latent_2d = self.X_explanation_latent.reshape(self.X_shape_latent[:2]) # 2d latent dataframe
 
         self.LOREM_explainer = LOREM(K = X_explanation_latent_2d, 
-                          bb_predict = self.blackbox_decode_and_predict, 
+                          bb_predict = self.blackbox_decode_and_predict,
+                          bb_predict_proba = self.blackbox_decode_and_predict_proba,
                           feature_names = feature_names, 
                           class_name = class_name, 
                           class_values = class_values, 
@@ -181,6 +203,104 @@ class AgnosticLocalExplainer(object):
                 neigh_class_counts = {class_values[k]: v for k, v in enumerate(neigh_counts)}
 
             print('synthetic neighborhood class counts %s' % neigh_class_counts)
+            
+    def print_rules_n(self):
+        for rule in self.rules_dataframes.keys():
+            print(rule + ": " + str(len(self.rules_dataframes[rule]["df"])) + " time series")
+            
+    def LOREM_rules_random_augmentation(self, 
+                                        rules_to_augment = None,
+                                        categorical_use_prob = True,
+                                        continuous_fun_estimation = False, 
+                                        size = 1000, 
+                                        ocr = 0.1, 
+                                        multi_label=False,
+                                        one_vs_rest=False,
+                                        verbose = True, 
+                                        samples = 1000,
+                                        random_state = 0,
+                                        ngen = 10):
+        
+                               
+    
+        """
+        neighgen = RandomGenerator(self.bb_predict, self.feature_values, self.features_map, nbr_features,
+                                       nbr_real_features, numeric_columns_index, ocr=ocr)
+        """
+        
+        columns = [str(i) for i in range(self.X_shape_latent[1])] # attribute names are numbers (timesteps)
+        df = pd.DataFrame(self.X_explanation_latent, columns = columns) 
+        df["class"] = self.y_explanation.flatten() 
+        class_name = "class"
+        df, feature_names, class_values, numeric_columns, rdf, real_feature_names, features_map = (prepare_dataset(df, class_name))
+
+        X_explanation_latent_2d = self.X_explanation_latent # 2d latent dataframe
+        
+        LOREM_explainer = LOREM(K = X_explanation_latent_2d, 
+                          bb_predict = self.blackbox_decode_and_predict, 
+                          feature_names = feature_names, 
+                          class_name = class_name, 
+                          class_values = class_values, 
+                          numeric_columns = numeric_columns, 
+                          features_map = features_map,
+                          neigh_type = "random", 
+                          categorical_use_prob = categorical_use_prob,
+                          continuous_fun_estimation = continuous_fun_estimation, 
+                          size = size, 
+                          ocr = ocr, 
+                          multi_label = multi_label, 
+                          one_vs_rest = one_vs_rest,
+                          random_state = random_state, 
+                          verbose = verbose, 
+                          ngen = ngen)
+        
+        samples = size # are these parameters the same?
+        
+        # neighborhood generation
+        Z_latent_instance_neighborhood = LOREM_explainer.neighgen_fn(self.instance_to_explain_latent, samples)
+        
+        # generated neighborhood blackbox predicted labels
+        Zy_latent_instance_neighborhood_labels = self.blackbox_decode_and_predict(Z_latent_instance_neighborhood)
+        
+        if LOREM_explainer.multi_label:
+            Z_latent_instance_neighborhood = np.array([z for z, y in 
+                                                            zip(Z_latent_instance_neighborhood, 
+                                                                Zy_latent_instance_neighborhood_labels) 
+                                                            if np.sum(y) > 0])
+            Zy_latent_instance_neighborhood_labels = self.blackbox_decode_and_predict(
+                Z_latent_instance_neighborhood)
+        
+        if LOREM_explainer.verbose:
+            if not LOREM_explainer.multi_label:
+                neigh_class, neigh_counts = np.unique(Zy_latent_instance_neighborhood_labels, return_counts=True)
+                neigh_class_counts = {class_values[k]: v for k, v in zip(neigh_class, neigh_counts)}
+            else:
+                neigh_counts = np.sum(Zy_latent_instance_neighborhood_labels, axis=0)
+                neigh_class_counts = {class_values[k]: v for k, v in enumerate(neigh_counts)}
+
+            print('synthetic neighborhood class counts %s' % neigh_class_counts)
+        
+        Z_latent_instance_neighborhood_decoded = self.decoder.predict(Z_latent_instance_neighborhood)[:,:,0]
+        
+        if not rules_to_augment:
+            rules_to_augment = self.rules_dataframes.keys()
+        for rule in rules_to_augment:
+            count = 0
+            for i, latent_instance in enumerate(Z_latent_instance_neighborhood):
+                if self.ABELE_is_covered(self.rules_dataframes[rule]["Rule_obj"], latent_instance):
+                    decoded_instance = Z_latent_instance_neighborhood_decoded[i]
+                    self.rules_dataframes[rule]["df"] = np.vstack([self.rules_dataframes[rule]["df"], decoded_instance])
+                    self.rules_dataframes_latent[rule]["df"] = np.vstack([self.rules_dataframes_latent[rule]["df"], latent_instance])
+                    count += 1
+            print(rule + " augmented by " + str(count) + " random instances (" + str(len(self.rules_dataframes[rule]["df"])) + ") time series total")
+        
+        print("recomputing medoids...")
+        for rule in rules_to_augment: 
+            distance_matrix = pairwise_distances(self.rules_dataframes_latent[rule]["df"], n_jobs = -1)
+            medoid_idx = np.argmin(distance_matrix.sum(axis=0))
+            self.rules_dataframes_latent[rule]["medoid_idx"] = medoid_idx
+            self.rules_dataframes[rule]["medoid_idx"] = medoid_idx
+        
         
     def LOREM_weights_calculation(self, use_weights = True, metric = neuclidean):
         if not use_weights:
@@ -245,10 +365,16 @@ class AgnosticLocalExplainer(object):
                     decoded_instance = self.Z_latent_instance_neighborhood_decoded[i]
                     rules_dataframes[rule]["df"].append(decoded_instance)
                     rules_dataframes_latent[rule]["df"].append(latent_instance)
-
+        
         for rule in rules_dataframes.keys(): 
             rules_dataframes[rule]["df"] = pd.DataFrame(rules_dataframes[rule]["df"]).values
             rules_dataframes_latent[rule]["df"] = pd.DataFrame(rules_dataframes_latent[rule]["df"]).values
+            
+            distance_matrix = pairwise_distances(rules_dataframes_latent[rule]["df"], n_jobs = -1)
+            medoid_idx = np.argmin(distance_matrix.sum(axis=0))
+            rules_dataframes_latent[rule]["medoid_idx"] = medoid_idx
+            rules_dataframes[rule]["medoid_idx"] = medoid_idx
+            print(rule + ": " + str(len(rules_dataframes[rule]["df"])) + " time series")
             
         self.rules_dataframes = rules_dataframes
         self.rules_dataframes_latent = rules_dataframes_latent
@@ -265,11 +391,19 @@ class AgnosticLocalExplainer(object):
             plt.plot(self.rules_dataframes[rule]["df"].mean(axis = 0), c = "black", linestyle='--')
             plt.show()
         plt.figure(figsize=figsize)
+        
+        plt.title("Rules Medoids")
+        for i, rule in enumerate(self.rules_dataframes.keys()):
+            plt.plot(self.rules_dataframes[rule]["df"][self.rules_dataframes[rule]["medoid_idx"]], c = colors[i%len(colors)], label = rule)
+        plt.legend()
+        plt.show()
+        """
         plt.title("Rule Averages")
         for i, rule in enumerate(self.rules_dataframes.keys()):
             plt.plot(self.rules_dataframes[rule]["df"].mean(axis = 0), c = colors[i%len(colors)], label = rule)
         plt.legend()
         plt.show()
+        """
         """
         plt.figure(figsize=figsize)
         plt.title("Rule Medians")
@@ -497,7 +631,8 @@ class AgnosticLocalExplainer(object):
     
     
     def multi_shap(self, 
-                   dataset, 
+                   dataset,
+                   medoid_idx,
                    n = -1, 
                    figsize = (20,3), 
                    nsamples = 1000,
@@ -506,6 +641,7 @@ class AgnosticLocalExplainer(object):
                    model = "rbf",
                    jump = 5,
                    ):
+        medoid = dataset[medoid_idx]
         if n > len(dataset):
             n = len(dataset)
         if n != -1:
@@ -532,6 +668,7 @@ class AgnosticLocalExplainer(object):
             shap_values_array.append(shap_values)
             
         self.plot_multi_shap(sample_dataset, shap_values_array, segmentations, figsize = figsize)
+        self.plot_aggregated_multi_shap(sample_dataset, shap_values_array, segmentations, figsize = figsize, medoid = medoid)
         #return shap_values_array
         max_len = 0
         for shap_values in shap_values_array:
@@ -547,7 +684,69 @@ class AgnosticLocalExplainer(object):
         
         shap_values_array = np.transpose(shap_values_array, (1, 0, 2))
         self.shap_heatmap(shap_values_array, figsize = (8,8))
+        
+    
+    def to_colors_by_point(self, segmentation_list, colors):
+        colors_by_point_list = []
+        for i, color in enumerate(colors):
+            for repetition in range(segmentation_list[i][1]-segmentation_list[i][0]):
+                colors_by_point_list.append(color)
+        return colors_by_point_list
+    
+    def plot_aggregated_multi_shap(self, dataset, shap_values_array, segmentations, figsize = (20,3), medoid = None):
+        # (batch, classes, 1, segments)
+        normalized_shap_values_arrays = []
+        segment_lists = [] # (batch, segment_list)
+        for i, shap_values in enumerate(shap_values_array):
+            normalized_shap_values_array = []
             
+            flat_shap = np.ravel(np.array(shap_values))
+            minima = flat_shap.min()
+            maxima = flat_shap.max()
+            
+            # these are here to avoid error in case there aren't values under or over 0 (for DiverginNorm)
+            if minima == 0: minima -= sys.float_info.epsilon
+            if maxima == 0: maxima += sys.float_info.epsilon
+        
+            norm = matplotlib.colors.DivergingNorm(vmin=minima, vcenter=0, vmax=maxima)
+        
+            for shap_array in shap_values:
+                normalized_shap_array = norm(shap_array)
+                normalized_shap_values_array.append(normalized_shap_array)
+        
+            segment_list = self.generate_segment_list(segmentations[i])
+            normalized_shap_values_arrays.append(normalized_shap_values_array)
+            segment_lists.append(segment_list)
+          
+        colors_by_point_lists = []
+        for i, colors_list in enumerate(normalized_shap_values_arrays): 
+            colors_by_point_list = []
+            for j, colors in enumerate(colors_list):
+                colors_by_point = self.to_colors_by_point(segment_lists[i], colors)
+                colors_by_point_list.append(colors_by_point)
+            colors_by_point_lists.append(colors_by_point_list)
+        #(batch, classes, colors_by_point)
+        colors_by_point_array = np.array(colors_by_point_lists)
+        #print(colors_by_point_array.shape)
+        aggregated_colors = colors_by_point_array.mean(axis = 0)
+        #print(aggregated_colors.shape)
+        
+        for i in range(aggregated_colors.shape[0]):
+            """
+            if not medoid_idx:
+                ax = pd.DataFrame(dataset.T).plot(c = "black", legend=False, figsize=(20,3), alpha = 0.8)
+            """
+            ax = pd.DataFrame(medoid.reshape(1,-1).T).plot(c = "black", legend=False, figsize=(20,3), alpha = 1)
+            ax.set_title("Class: " + self.labels[i] if self.labels else "Class: " + str(i))
+            ax.pcolorfast(ax.get_xlim(), 
+                          ax.get_ylim(),
+                          aggregated_colors[i,:][np.newaxis],
+                          cmap = "coolwarm", alpha=1, 
+                          vmin = 0, 
+                          vmax = 1
+                          )
+      
+        
     def plot_multi_shap(self, dataset, shap_values_array, segmentations, figsize = (20,3)):
         # (batch, classes, 1, segments)
         colors_lists = []
@@ -610,6 +809,21 @@ class AgnosticLocalExplainer(object):
             ax.set_title("class: " + str(i) if not self.labels else "class: " + str(self.labels[i]) + " ({})".format(str(i)))
             ax.matshow(class_array, norm = norm, cmap = "coolwarm", aspect="auto")
             plt.show()
+            
+    def build_shapelet_explainer(self, l=0.1, r=2, weight_regularizer=.01, optimizer="sgd", max_iter=100):
+        self.shapelet_explainer = AgnosticGlobalExplainer(labels = self.labels,
+                                                          l = l,
+                                                          r = r, 
+                                                          weight_regularizer = weight_regularizer,
+                                                          optimizer = optimizer,
+                                                          max_iter = max_iter) 
+        if self.Z_latent_instance_neighborhood_decoded is None:
+            Z_latent_instance_neighborhood_decoded = self.decoder.predict(self.Z_latent_instance_neighborhood)[:,:,0]
+        else:
+            Z_latent_instance_neighborhood_decoded = self.Z_latent_instance_neighborhood_decoded
+        self.shapelet_explainer.fit(Z_latent_instance_neighborhood_decoded,
+                                    self.Zy_latent_instance_neighborhood_labels)
+        return self.shapelet_explainer
     
     def plot_explanation(self, 
                          rules = True, 
@@ -629,9 +843,9 @@ class AgnosticLocalExplainer(object):
         # plot instance to explain
         plt.figure(figsize = figsize)
         if not self.labels:
-            plt.title(label = "Instance to Explain, class: " + str(self.instance_to_explain_class))
+            plt.title(label = "Instance to Explain, class: " + str(self.instance_to_explain_blackbox_class))
         else:
-            plt.title(label = "Instance to Explain, class: " + self.labels[self.instance_to_explain_class] + " (" + str(self.instance_to_explain_class)+")")
+            plt.title(label = "Instance to Explain, class: " + self.labels[self.instance_to_explain_blackbox_class] + " (" + str(self.instance_to_explain_blackbox_class)+")")
         plt.plot(self.instance_to_explain)
         plt.show()
         
@@ -644,15 +858,15 @@ class AgnosticLocalExplainer(object):
         # plot shap explanation on rules and crules centroids
         #self.shap_output_data = []
         if shap_explanation:
-            mean_df = []
+            medoid_df = []
             for rule in self.rules_dataframes.keys():
-                mean_df.append(self.rules_dataframes[rule]["df"].mean(axis = 0))
-            mean_df = np.array(mean_df)
+                medoid_df.append(self.rules_dataframes[rule]["df"][self.rules_dataframes[rule]["medoid_idx"]])
+            medoid_df = np.array(medoid_df)
             rules_shap_values = []
             rules_segmentations = []
-            for i, mean_ts in enumerate(mean_df):
+            for i, medoid_ts in enumerate(medoid_df):
                 print(list(self.rules_dataframes.keys())[i])
-                shap_values, segmentation = self.shap_ts(ts = mean_ts, 
+                shap_values, segmentation = self.shap_ts(ts = medoid_ts, 
                                                          classifier = self.blackbox, 
                                                          input_dim = self.blackbox_input_dimensions, 
                                                          figsize = figsize, 
@@ -665,13 +879,13 @@ class AgnosticLocalExplainer(object):
                 if params.get("shap_by_class", False):
                     rules_shap_values.append(shap_values)
                     rules_segmentations.append(segmentation)
-                self.plot_shap(ts = mean_ts, 
+                self.plot_shap(ts = medoid_ts, 
                                shap_values = shap_values, 
                                segmentation = segmentation, 
                                figsize = figsize)
             if params.get("shap_by_class", False):
                 print("SHAP by class")
-                self.plot_shap_by_class(mean_df,
+                self.plot_shap_by_class(medoid_df,
                                         rules_shap_values,
                                         rules_segmentations,
                                         figsize = figsize
@@ -680,7 +894,8 @@ class AgnosticLocalExplainer(object):
         if multi_shap_explanation:
             for rule in self.rules_dataframes.keys():
                 print(rule)
-                self.multi_shap(self.rules_dataframes[rule]["df"], 
+                self.multi_shap(self.rules_dataframes[rule]["df"],
+                                medoid_idx = self.rules_dataframes[rule]["medoid_idx"],
                                 n = params.get("multishap_n", -1), 
                                 figsize = figsize, 
                                 nsamples = params.get("nsamples", 1000),
@@ -694,22 +909,20 @@ class AgnosticLocalExplainer(object):
         
         # plot shapelet explanation on rules and crules centroids
         if shapelet_explanation:
-            self.shapelet_explainer = AgnosticGlobalExplainer(labels = self.labels,
-                                                              l = params.get("l",0.1),
-                                                              r = params.get("r",2), 
-                                                              weight_regularizer = params.get("weight_regularizer", .01),
-                                                              optimizer = params.get("optimizer", "sgd"),
-                                                              max_iter = params.get("max_iter", 100)) 
-            self.shapelet_explainer.fit(self.Z_latent_instance_neighborhood_decoded,
-                                        self.Zy_latent_instance_neighborhood_labels)
-            mean_df = []
+            if self.shapelet_explainer is None:
+                self.build_shapelet_explainer(l = params.get("l",0.1),
+                                              r = params.get("r",2), 
+                                              weight_regularizer = params.get("weight_regularizer", .01),
+                                              optimizer = params.get("optimizer", "sgd"),
+                                              max_iter = params.get("max_iter", 100))
+            medoid_df = []
             for rule in self.rules_dataframes.keys():
-                mean_df.append(self.rules_dataframes[rule]["df"].mean(axis = 0))
-            mean_df = np.array(mean_df)
-            for i, mean_ts in enumerate(mean_df):
+                medoid_df.append(self.rules_dataframes[rule]["df"][self.rules_dataframes[rule]["medoid_idx"]])
+            medoid_df = np.array(medoid_df)
+            for i, medoid_ts in enumerate(medoid_df):
                 print(list(self.rules_dataframes.keys())[i])
-                self.shapelet_explainer.plot_series_shapelet_explanation(mean_ts,
-                                                                         self.blackbox_predict(mean_ts.reshape(1,-1,1)),
+                self.shapelet_explainer.plot_series_shapelet_explanation(medoid_ts,
+                                                                         self.blackbox_predict(medoid_ts.reshape(1,-1,1)),
                                                                          figsize = figsize
                                                                          )
                 self.shapelet_explainer.fidelity = accuracy_score(self.Zy_latent_instance_neighborhood_labels,
@@ -966,7 +1179,7 @@ if __name__ == '__main__':
     
     
     
-    index_to_explain = 1
+    index_to_explain = 0
     blackbox = resnet
     encoder = autoencoder.layers[1]
     decoder = autoencoder.layers[2]
@@ -986,34 +1199,38 @@ if __name__ == '__main__':
     agnostic.check_autoencoder_blackbox_consistency()
     print("\nNeighborhood Generation")
     agnostic.LOREM_neighborhood_generation(
-                          neigh_type = 'rndgen', 
+                          neigh_type = 'geneticp', 
                           categorical_use_prob = True,
                           continuous_fun_estimation = False, 
-                          size = 500,
+                          size = 100,
                           ocr = 0.1, 
                           multi_label=False,
                           one_vs_rest=False,
                           verbose = True,
-                          ngen = 10)
+                          ngen = 2)
     print("\nExtracting Rules")
     agnostic.LOREM_tree_rules_extraction()
     agnostic.build_rules_dataframes()
+    agnostic.print_rules_n()
+    agnostic.LOREM_rules_random_augmentation(rules_to_augment = ["rule"], size = 100)
+    agnostic.print_rules_n()
     
     params = {"background": "linear_consecutive", 
-              "nsamples":300, 
+              "nsamples":100, 
               "shap_by_class" : False,
               "optimizer": keras.optimizers.Adam(),#keras.optimizers.Adagrad(lr=.1), 
-              "multishap_n":50}
+              "multishap_n":10}
     
     agnostic.plot_explanation( 
                          rules = True, 
                          heatmap = False, 
                          shap_explanation = True, 
-                         shapelet_explanation = False,
-                         latent_space = False,
+                         shapelet_explanation = True,
+                         latent_space = True,
                          multi_shap_explanation = True,
                          figsize = (20,3),
                          VAE_2d = False,
                          **params
                          )
+    
     

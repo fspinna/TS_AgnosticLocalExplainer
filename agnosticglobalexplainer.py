@@ -12,6 +12,10 @@ from sklearn import tree
 import graphviz
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+#import matplotlib.cm as cm
+import pandas as pd
+import sys
 
 
 
@@ -37,6 +41,7 @@ class AgnosticGlobalExplainer(object):
         self.max_iter = max_iter
         self.fidelity = None
         self.graph = None
+        self.fitted_transformed_dataset = None
         
     
     def fit(self, dataset, dataset_labels):
@@ -57,6 +62,7 @@ class AgnosticGlobalExplainer(object):
         
         shp_clf.fit(dataset, dataset_labels)
         dataset_transformed = shp_clf.transform(dataset)
+        self.fitted_transformed_dataset = dataset_transformed
         clf = DecisionTreeClassifier()
         param_list = {'min_samples_split': [0.002, 0.01, 0.05, 0.1, 0.2],
                       'min_samples_leaf': [0.001, 0.01, 0.05, 0.1, 0.2],
@@ -76,6 +82,11 @@ class AgnosticGlobalExplainer(object):
     def predict(self, dataset):
         transformed_dataset = self.shapelet_generator.transform(dataset)
         prediction = self.surrogate.predict(transformed_dataset)
+        return prediction
+    
+    def predict_proba(self, dataset):
+        transformed_dataset = self.shapelet_generator.transform(dataset)
+        prediction = self.surrogate.predict_proba(transformed_dataset)
         return prediction
     
     def build_tree_graph(self, out_file=None):
@@ -153,6 +164,9 @@ class AgnosticGlobalExplainer(object):
                      
                     )
         plt.show()
+        
+        
+        
         for i, idx_shp in enumerate(shapelet_dict["shapelet_idxs"]):
             print(shapelet_dict["print_out"][i])
             plt.figure(figsize = figsize)
@@ -174,6 +188,49 @@ class AgnosticGlobalExplainer(object):
                      
                     )
             plt.show()
+        
+        #series = dataset[test_ts_id].ravel()
+        #similarity_array = np.zeros(len(ts))
+        similarity_matrix = []
+        for i, idx_shp in enumerate(shapelet_dict["shapelet_idxs"]):
+            shp = self.shapelet_generator.shapelets_[idx_shp]
+            #threshold_sign = shapelet_dict["threshold_sign"][i]
+            distance = shapelet_dict["distance"][i]
+            distance_color = mapper.to_rgba(distance) if mapper else "r"
+            
+            t0 = predicted_locations[test_ts_id, idx_shp]
+            similarity_array = np.full(len(ts), np.NaN)
+            similarity_array[t0:t0 + len(shp)] = 1/distance if distance!=0 else 1
+            similarity_matrix.append(similarity_array)
+        similarity_mean = np.nanmean(similarity_matrix, axis = 0)
+        
+        #vmin = self.fitted_transformed_dataset.min()
+        #vmin = 0.00000001 if vmin == 0 else vmin
+        
+        norm = matplotlib.colors.Normalize(vmin=0, vmax=1, clip=False)
+        #norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=1, clip=False)
+        #vmin = self.fitted_transformed_dataset.min()
+        #norm = matplotlib.colors.PowerNorm(vmin=vmin, vmax=1, clip=False, gamma = 2)
+        #mapper = cm.ScalarMappable(norm=norm, cmap=cm.Reds)
+        #similarity_array_norm = norm(similarity_array)
+        #colors = mapper.to_rgba(similarity_array,)
+        
+        #print(similarity_array)
+        cmap = matplotlib.cm.Reds
+        #norm = matplotlib.colors.Normalize(-1,1)
+        colors = [[norm(0), "lightgrey"], [norm(1.0), "#9A1831"]]
+        cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", colors)
+        cmap.set_bad(color='lightgray')
+        ax = pd.DataFrame(dataset.T).plot(c = "black", legend=False, figsize=figsize, alpha = 1)
+        
+        ax.pcolorfast(ax.get_xlim(), 
+                      ax.get_ylim(),
+                      similarity_mean[np.newaxis],
+                      cmap = cmap, alpha=1, 
+                      vmin = 0, 
+                      vmax = 1,
+                      norm = norm
+                      )
 
 
 if __name__ == '__main__':
@@ -237,10 +294,10 @@ if __name__ == '__main__':
     
     blackbox = load("./blackbox_checkpoints/cbf_blackbox_knn_20191106_145654.joblib")
     
-    params = {"optimizer":keras.optimizers.Adagrad(lr=.1),"max_iter": 100}
+    params = {"optimizer":keras.optimizers.Adagrad(lr=.1),"max_iter": 50}
     global_surrogate = AgnosticGlobalExplainer(**params)
     global_surrogate.fit(X_train[:,:,0], blackbox.predict(X_train[:,:,0]))
-    global_surrogate.plot_series_shapelet_explanation(X_train[0].ravel(), blackbox.predict(X_train[0].ravel().reshape(1,-1)))
+    global_surrogate.plot_series_shapelet_explanation(X_train[10].ravel(), blackbox.predict(X_train[0].ravel().reshape(1,-1)))
     
     print("test fidelity: ", accuracy_score(blackbox.predict(X_test[:,:,0]),
                global_surrogate.predict(X_test[:,:,0])))

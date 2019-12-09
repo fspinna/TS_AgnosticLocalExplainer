@@ -7,9 +7,11 @@ from lore.decision_table import DecisionTable, DecisionTableRegion, weight_attri
 
 def merge_decision_trees(dt_list, X, Y, feature_names, class_name, class_values, numeric_columns,
                          ratio_thr=1.0, weight_fun='avg', conflict_fun='max', coverage_thr=0.01, precision_thr=0.6):
-    dt_list = decision_trees2decision_tables(dt_list, X, Y, feature_names, class_name, class_values, numeric_columns)
-    dt = merge_models(dt_list, X, Y, ratio_thr, weight_fun, conflict_fun, coverage_thr, precision_thr,
+    dtab_list = decision_trees2decision_tables(dt_list, X, Y, feature_names, class_name, class_values, numeric_columns)
+    dt = merge_models(dtab_list, X, Y, ratio_thr, weight_fun, conflict_fun, coverage_thr, precision_thr,
                       type='sample', size=1000, random_state=None)
+    if dt is None:
+        dt = dt_list[0]
     return dt
 
 
@@ -125,7 +127,12 @@ def merge_models(dt_list, X, Y, ratio_thr=1.0, weight_fun='avg', conflict_fun='m
 
     dt = DecisionTreeClassifier(max_depth=None, min_samples_split=2, min_samples_leaf=1, random_state=random_state)
     # print(len(Z), np.unique(Y, return_counts=True))
-    dt.fit(Z, Y)
+    if len(Z) > 1:
+        dt.fit(Z, Y)
+    elif len(Z) == 1:
+        dt.fit(Z.reshape(1, -1), Y)
+    else:
+        return None
     prune_duplicate_leaves(dt)
     return dt
 

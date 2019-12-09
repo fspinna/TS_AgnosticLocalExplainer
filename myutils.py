@@ -8,6 +8,7 @@ Created on Wed Nov 13 17:15:54 2019
 from sklearn.metrics import accuracy_score
 import numpy as np
 import pandas as pd
+from agnosticlocalexplainer import AgnosticLocalExplainer
 
 def reconstruction_blackbox_consistency(autoencoder, blackbox, dataset, keras = True, discriminative = False):
     if keras:
@@ -55,3 +56,17 @@ class BlackboxPredictWrapper(object):
         prediction = prediction.ravel() 
     
         return prediction
+    
+    def predict_proba(self, dataset):
+        # X: 3d array (batch, timesteps, 1)
+        if self.input_dimensions == 2:
+            dataset = dataset[:,:,0] # 3d to 2d array (batch, timesteps)
+            prediction = self.blackbox.predict_proba(dataset)
+        else: prediction = self.blackbox.predict(dataset)
+        return prediction
+    
+
+
+
+        
+    

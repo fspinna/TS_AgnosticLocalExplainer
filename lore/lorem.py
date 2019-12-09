@@ -14,7 +14,7 @@ from lore.merge_decision_trees import merge_decision_trees
 from lore.explanation import Explanation, MultilabelExplanation
 from lore.decision_tree import learn_local_decision_tree
 from lore.neighgen import RandomGenerator, GeneticGenerator, RandomGeneticGenerator, ClosestInstancesGenerator
-from lore.neighgen import GeneticProbaGenerator, RandomGeneticProbaGenerator, RandomGeneratorNsynth, MixingGeneratorNsynth
+from lore.neighgen import GeneticProbaGenerator, RandomGeneticProbaGenerator
 from lore.rule import get_rule, get_counterfactual_rules
 from lore.util import calculate_feature_values, neuclidean, multilabel2str, multi_dt_predict
 
@@ -98,6 +98,16 @@ class LOREM(object):
 
         return exp
 
+    def multi_neighgen_fn(self, x, runs, samples):
+        Z_list = list()
+        for i in range(runs):
+            if self.verbose:
+                print('generating neighborhood [%s/%s] - %s' % (i, runs, self.neigh_type))
+            Z = self.neighgen_fn(x, samples)
+            Z_list.append(Z)
+
+        return Z_list
+
     def explain_instance_stable(self, x, samples=100, use_weights=True, metric=neuclidean, runs=10, ratio_thr=1.0,
                                 weight_fun='avg', conflict_fun='max', coverage_thr=0.0, precision_thr=0.0):
 
@@ -106,12 +116,7 @@ class LOREM(object):
             raise Exception
 
         if isinstance(samples, int):
-            Z_list = list()
-            for i in range(runs):
-                if self.verbose:
-                    print('generating neighborhood [%s/%s] - %s' % (i, runs, self.neigh_type))
-                Z = self.neighgen_fn(x, samples)
-                Z_list.append(Z)
+            Z_list = self.multi_neighgen_fn(x, runs, samples)
         else:
             Z_list = samples
 
@@ -288,6 +293,7 @@ class LOREM(object):
 
         neighgen = None
         numeric_columns_index = [i for i, c in enumerate(self.feature_names) if c in self.numeric_columns]
+
         self.feature_values = None
         if self.neigh_type in ['random', 'genetic', 'rndgen', 'geneticp', 'rndgenp']:
             if self.verbose:
@@ -310,6 +316,7 @@ class LOREM(object):
             cxpb = kwargs.get('cxpb', 0.7)
             tournsize = kwargs.get('tournsize', 3)
             halloffame_ratio = kwargs.get('halloffame_ratio', 0.1)
+            # return_logbooks = kwargs.get('return_logbooks', False)
             random_seed = self.random_state
 
             if self.neigh_type == 'genetic':
@@ -350,14 +357,6 @@ class LOREM(object):
         elif self.neigh_type == 'random':
             neighgen = RandomGenerator(self.bb_predict, self.feature_values, self.features_map, nbr_features,
                                        nbr_real_features, numeric_columns_index, ocr=ocr)
-            
-        elif self.neigh_type == 'random_nsynth':
-            neighgen = RandomGeneratorNsynth(self.bb_predict, self.feature_values, self.features_map, nbr_features,
-                                       nbr_real_features, numeric_columns_index, self.K, ocr=ocr)
-        elif self.neigh_type == 'mixing_nsynth':
-            neighgen = MixingGeneratorNsynth(self.bb_predict, self.feature_values, self.features_map, nbr_features,
-                                       nbr_real_features, numeric_columns_index, self.K, ocr=ocr)
-            
         elif self.neigh_type == 'closest':
             Kc = kwargs.get('Kc', None)
             k = kwargs.get('k', None)
