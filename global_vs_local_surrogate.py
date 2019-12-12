@@ -168,7 +168,7 @@ if __name__ == "__main__":
     print("N. LABELS: ", n_outputs)
     
     
-    #knn = load("./blackbox_checkpoints/cbf_blackbox_knn_20191106_145654.joblib")
+    knn = load("./blackbox_checkpoints/cbf_blackbox_knn_20191106_145654.joblib")
     
     blackbox = build_resnet(n_timesteps, n_outputs)
     blackbox.load_weights("./blackbox_checkpoints/cbf_blackbox_resnet_20191106_145242_best_weights_+1.00_.hdf5")
@@ -198,7 +198,7 @@ if __name__ == "__main__":
     
     
     blackbox_predict = BlackboxPredictWrapper(blackbox, 3)
-    args = {"optimizer":keras.optimizers.Adam(),"max_iter": 100}
+    args = {"max_iter": 100}
     global_surrogate = AgnosticGlobalExplainer(**args)
     global_surrogate.fit(X_exp_train[:,:,0], blackbox_predict.predict(X_exp_train))
     y_blackbox = blackbox_predict.predict(X_exp_test)
