@@ -3,3 +3,6 @@
 
 # Ignore agnostic_explainers folder
 agnostic_explainers/
+
+# Ignore pycache
+__pycache__/
