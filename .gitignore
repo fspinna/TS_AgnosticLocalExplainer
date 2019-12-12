@@ -6,3 +6,5 @@ agnostic_explainers/
 
 # Ignore pycache
 __pycache__/
+lore/__pycache__/
+notebooks/.ipynb_checkpoints/
