@@ -6,7 +6,6 @@ Created on Thu Nov 21 15:19:29 2019
 @author: francesco
 """
 from tslearn.shapelets import ShapeletModel, grabocka_params_to_shapelet_size_dict
-from tslearn import shapelets
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn import tree
@@ -17,24 +16,9 @@ import matplotlib
 #import matplotlib.cm as cm
 import pandas as pd
 import sys
-from joblib import load, dump
 
-"""
-def custom_save(explainer, file_path):
-    explainer.shapelet_generator.save(file_path + ".h5")
-    explainer.shapelet_generator = None
-    dump(explainer, file_path + ".pkl")
-    
-def custom_load(file_path):
-    explainer = load(file_path)
-    explainer.shapelet_generator = shapelets.load_model(file_path + ".h5")
-    return explainer
 
-def custom_save_reload(explainer, file_path):
-    custom_save(explainer, file_path)
-    custom_load(file_path)
-    return explainer
-"""
+
 
 class AgnosticGlobalExplainer(object):
     def __init__(self,
@@ -44,8 +28,7 @@ class AgnosticGlobalExplainer(object):
                  optimizer = "sgd",
                  shapelet_sizes = None,
                  weight_regularizer = .01,
-                 max_iter = 100,
-                 random_state = None
+                 max_iter = 100
                 ):
         self.shapelet_generator = None
         self.surrogate = None
@@ -59,7 +42,6 @@ class AgnosticGlobalExplainer(object):
         self.fidelity = None
         self.graph = None
         self.fitted_transformed_dataset = None
-        self.random_state = random_state
         
     
     def fit(self, dataset, dataset_labels):
@@ -76,7 +58,6 @@ class AgnosticGlobalExplainer(object):
                                 optimizer=self.optimizer,
                                 weight_regularizer=self.weight_regularizer,
                                 max_iter=self.max_iter,
-                                random_state = self.random_state,
                                 verbose=0)
         
         shp_clf.fit(dataset, dataset_labels)
@@ -250,9 +231,6 @@ class AgnosticGlobalExplainer(object):
                       vmax = 1,
                       norm = norm
                       )
-        
-        
-            
 
 
 if __name__ == '__main__':
@@ -316,10 +294,10 @@ if __name__ == '__main__':
     
     blackbox = load("./blackbox_checkpoints/cbf_blackbox_knn_20191106_145654.joblib")
     
-    params = {"optimizer":keras.optimizers.Adagrad(lr=.1),"max_iter": 50, "random_state":random_state}
+    params = {"optimizer":keras.optimizers.Adagrad(lr=.1),"max_iter": 50}
     global_surrogate = AgnosticGlobalExplainer(**params)
     global_surrogate.fit(X_train[:,:,0], blackbox.predict(X_train[:,:,0]))
-    global_surrogate.plot_series_shapelet_explanation(X_train[10].ravel(), blackbox.predict(X_train[10].ravel().reshape(1,-1)))
+    global_surrogate.plot_series_shapelet_explanation(X_train[10].ravel(), blackbox.predict(X_train[0].ravel().reshape(1,-1)))
     
     print("test fidelity: ", accuracy_score(blackbox.predict(X_test[:,:,0]),
                global_surrogate.predict(X_test[:,:,0])))
