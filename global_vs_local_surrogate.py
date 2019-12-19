@@ -6,23 +6,29 @@ Created on Wed Dec  4 11:16:22 2019
 @author: francesco
 """
 
-from agnosticlocalexplainer import AgnosticLocalExplainer
+from agnosticlocalexplainer import AgnosticLocalExplainer, save_agnostic_local_explainer, load_agnostic_local_explainer
 import numpy as np
 
-def build_neighborhoods(blackbox, 
-                           encoder, 
-                           decoder, 
-                           autoencoder, 
-                           X_explanation, 
-                           y_explanation,
-                           blackbox_input_dimensions,
-                           labels = None,
-                           size = 100,
-                           neigh_type = "rndgen",
-                           ngen = 10,
-                           ):
-    
+def build_agnostic_local_explainers(blackbox, 
+                                   encoder, 
+                                   decoder, 
+                                   autoencoder, 
+                                   X_explanation, 
+                                   y_explanation,
+                                   blackbox_input_dimensions,
+                                   labels = None,
+                                   size = 100,
+                                   neigh_type = "rndgen",
+                                   ngen = 10,
+                                   l=0.1, 
+                                  r=2, 
+                                  weight_regularizer=.01, 
+                                  optimizer="sgd", 
+                                  max_iter=100,
+                                  random_state = None
+                                   ):
     agnostic_explainers = []
+    counter = 0
     for index_to_explain in range(len(X_explanation)):
         agnostic = AgnosticLocalExplainer(blackbox, 
                                       encoder, 
@@ -47,65 +53,153 @@ def build_neighborhoods(blackbox,
                               verbose = True,
                               ngen = ngen)
         agnostic.LOREM_tree_rules_extraction()
+        agnostic.build_shapelet_explainer(l=l, 
+                                           r=r, 
+                                           weight_regularizer=weight_regularizer, 
+                                           optimizer=optimizer, 
+                                           max_iter=max_iter,
+                                           random_state = random_state
+                                           )
         agnostic_explainers.append(agnostic)
+        counter += 1 
+        print(counter, "/", len(X_explanation))
     return agnostic_explainers
 
-def build_local_shapelet_trees(agnostic_explainers,
-                                      l=0.1, 
-                                      r=2, 
-                                      weight_regularizer=.01, 
-                                      optimizer="sgd", 
-                                      max_iter=100,
-                                      random_state = None
-                                      ):
+def save_agnostic_local_explainers(agnostic_explainers, file_path, verbose = False):
+    folder = file_path + "/"
+    for i, agnostic in enumerate(agnostic_explainers):
+        save_agnostic_local_explainer(agnostic, folder + "_" + str(i) + "_")
+        if verbose:
+            print(i+1, "/", len(agnostic_explainers))
         
+def load_agnostic_local_explainers(file_path, n_explainers, verbose = False):
+    folder = file_path + "/"
+    agnostic_explainers = []
+    for i in range(n_explainers):
+        agnostic = load_agnostic_local_explainer(folder + "_" + str(i) + "_")
+        agnostic_explainers.append(agnostic)
+        if verbose:
+            print(i+1, "/", n_explainers)
+    return agnostic_explainers
+        
+def massive_save_agnostic_local_explainers(agnostic_explainers, file_path, verbose = False):
+    folder = file_path + "/"
+    for i, agnostic in enumerate(agnostic_explainers):
+        save_shapelet_model(agnostic.shapelet_explainer, folder + "_" + str(i) + "_")
+        agnostic.shapelet_explainer = None
+        if verbose:
+            print(i+1, "/", len(agnostic_explainers))
+    dump(agnostic_explainers, file_path + "/" + "agnostic_explainers.pkl")
+    
+def massive_load_agnostic_local_explainers(file_path, verbose = False):
+    folder = file_path + "/"
+    agnostic_explainers = load(file_path + "/" + "agnostic_explainers.pkl")
+    for i, agnostic in enumerate(agnostic_explainers):
+        agnostic.shapelet_explainer = load_shapelet_model(folder + "_" + str(i) + "_")
+        if verbose:
+            print(i+1, "/", len(agnostic_explainers))
+    return agnostic_explainers
+    
+
+def get_local_predictions(agnostic_explainers):
     Y_blackbox_original = []    # blackbox prediction of original ts
     Y_blackbox_reconstructed = []   # blackbox prediction of autoencoder reconstructed ts
     Y_surrogate_original = []   # surrogate prediction of original ts
     Y_surrogate_reconstructed = []  # surrogate prediction of autoencoder reconstructed ts
-    Y_LORE = []
-    shapelet_explainers = []
-    counter = 0
+    Y_LORE = [] # LORE tree prediction
+    fidelity_LORE_LOCAL = [] # LORE tree fidelity
+    coverage_LORE_LOCAL = [] # LORE rule coverage
+    precision_LORE_LOCAL = [] # LORE rule precision
+    fidelity_neighborhood_shapelet_LOCAL = [] # internal shapelet tree fidelity (inside the agnostic explainer)
+    coverage_shapelet_LOCAL = [] # internal shapelet rule coverage
+    precision_shapelet_LOCAL = [] # internal shapelet rule precision
     for agnostic in agnostic_explainers:
-        shapelet_explainer = agnostic.build_shapelet_explainer(l=l, 
-                                                               r=r, 
-                                                               weight_regularizer=weight_regularizer, 
-                                                               optimizer=optimizer, 
-                                                               max_iter=max_iter,
-                                                               random_state = random_state
-                                                               )
-        
         y_blackbox_original = agnostic.blackbox_predict(agnostic.instance_to_explain.reshape(1,-1,1))[0]
         y_blackbox_reconstructed = agnostic.blackbox_decode_and_predict(agnostic.instance_to_explain_latent.reshape(1,-1))[0]
-        y_surrogate_original = shapelet_explainer.predict(agnostic.instance_to_explain.reshape(1,-1))[0]
-        y_surrogate_reconstructed = shapelet_explainer.predict(decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)))[0]
+        y_surrogate_original = agnostic.shapelet_explainer.predict(agnostic.instance_to_explain.reshape(1,-1))[0]
+        y_surrogate_reconstructed = agnostic.shapelet_explainer.predict(decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)))[0]
         y_LORE = agnostic.LOREM_Explanation.dt_pred
+        fidelity_LORE = agnostic.LOREM_Explanation.fidelity
+        coverage_LORE = agnostic.LOREM_coverage
+        precision_LORE = agnostic.LOREM_precision
+        fidelity_neighborhood_shapelet = agnostic.shapelet_explainer.fidelity
+        coverage_shapelet = agnostic.shapelet_explainer.coverage_score(agnostic.decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)).ravel())
+        precision_shapelet = agnostic.shapelet_explainer.precision_score(agnostic.decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)).ravel(),
+                                                                         agnostic.Zy_latent_instance_neighborhood_labels)
         
         Y_blackbox_original.append(y_blackbox_original)
         Y_blackbox_reconstructed.append(y_blackbox_reconstructed)
         Y_surrogate_original.append(y_surrogate_original)
         Y_surrogate_reconstructed.append(y_surrogate_reconstructed)
         Y_LORE.append(y_LORE)
-        
-        shapelet_explainers.append(shapelet_explainer)
-        
-        counter += 1 
-        print(counter, "/", len(agnostic_explainers))
-        
+        fidelity_LORE_LOCAL.append(fidelity_LORE)
+        coverage_LORE_LOCAL.append(coverage_LORE)
+        precision_LORE_LOCAL.append(precision_LORE)
+        fidelity_neighborhood_shapelet_LOCAL.append(fidelity_neighborhood_shapelet)
+        coverage_shapelet_LOCAL.append(coverage_shapelet)
+        precision_shapelet_LOCAL.append(precision_shapelet)
     return {"y_blackbox_original_LOCAL": np.array(Y_blackbox_original), 
             "y_blackbox_reconstructed_LOCAL": np.array(Y_blackbox_reconstructed), 
             "y_surrogate_original_LOCAL": np.array(Y_surrogate_original), 
             "y_surrogate_reconstructed_LOCAL": np.array(Y_surrogate_reconstructed),
             "y_LORE_LOCAL": np.array(Y_LORE),
-            "shapelet_explainers_LOCAL": shapelet_explainers
+            "coverage_LORE_LOCAL": np.array(coverage_LORE_LOCAL),
+            "precision_LORE_LOCAL": np.array(precision_LORE_LOCAL),
+            "fidelity_LORE_LOCAL": np.array(fidelity_LORE_LOCAL),
+            "fidelity_neighborhood_shapelet_LOCAL": np.array(fidelity_neighborhood_shapelet_LOCAL),
+            "coverage_shapelet_LOCAL": np.array(coverage_shapelet_LOCAL),
+            "precision_shapelet_LOCAL": np.array(precision_shapelet_LOCAL)
             }
+
+def get_global_predictions(global_surrogate, blackbox_predict, dataset, y_blackbox_train):
+    y_blackbox_original_GLOBAL = blackbox_predict.predict(dataset)
+    y_blackbox_reconstructed_GLOBAL = blackbox_predict.predict(decoder.predict(encoder.predict(dataset)))
+    y_surrogate_original_GLOBAL = global_surrogate.predict(dataset[:,:,0])
+    y_surrogate_reconstructed_GLOBAL = global_surrogate.predict(decoder.predict(encoder.predict(dataset))[:,:,0])
+    coverage_shapelet_GLOBAL = []
+    precision_shapelet_GLOBAL = []
+    for ts in dataset:
+        coverage_shapelet_GLOBAL.append(global_surrogate.coverage_score(ts))
+        precision_shapelet_GLOBAL.append(global_surrogate.precision_score(ts, y_blackbox_train))
+    global_results = {"y_blackbox_original_GLOBAL":y_blackbox_original_GLOBAL,
+                      "y_blackbox_reconstructed_GLOBAL":y_blackbox_reconstructed_GLOBAL,
+                      "y_surrogate_original_GLOBAL":y_surrogate_original_GLOBAL,
+                      "y_surrogate_reconstructed_GLOBAL":y_surrogate_reconstructed_GLOBAL,
+                      "coverage_shapelet_GLOBAL": np.array(coverage_shapelet_GLOBAL),
+                      "precision_shapelet_GLOBAL": np.array(precision_shapelet_GLOBAL)
+                      }
+    return global_results
+
+def get_all_predictions(agnostic_explainers, global_surrogate, blackbox_predict, dataset, y_blackbox_train):
+    local_results = get_local_predictions(agnostic_explainers)
+    global_results = get_global_predictions(global_surrogate, blackbox_predict, dataset, y_blackbox_train)
+    results = {**local_results, **global_results}
+    results_df = pd.DataFrame(results)
+    return results_df
+
+def print_report(results_df):
+    local_classification_report = classification_report(results_df["y_blackbox_original_LOCAL"], results_df["y_surrogate_reconstructed_LOCAL"])
+    global_classification_report = classification_report(results_df["y_blackbox_original_GLOBAL"], results_df["y_surrogate_original_GLOBAL"])
+    reconstrution_classification_report = classification_report(results_df["y_blackbox_original_LOCAL"], results_df["y_blackbox_reconstructed_LOCAL"])
     
+    local_fidelity = accuracy_score(results_df["y_blackbox_original_LOCAL"], results_df["y_surrogate_reconstructed_LOCAL"])
+    global_fidelity = accuracy_score(results_df["y_blackbox_original_GLOBAL"], results_df["y_surrogate_original_GLOBAL"])
+    reconstruction_fidelity = accuracy_score(results_df["y_blackbox_original_LOCAL"], results_df["y_blackbox_reconstructed_LOCAL"])
+
+    
+    print("local fidelity: ", local_fidelity)
+    print("global fidelity: ", global_fidelity)
+    print("reconstruction fidelity: ", reconstruction_fidelity)
+    
+    
+        
+
+
     
 if __name__ == "__main__":
     
-    from agnosticglobalexplainer import AgnosticGlobalExplainer
+    from agnosticglobalexplainer import AgnosticGlobalExplainer, save_shapelet_model, load_shapelet_model
     from myutils import BlackboxPredictWrapper
-    import keras
     from pyts.datasets import make_cylinder_bell_funnel
     from sklearn.model_selection import train_test_split
     from autoencoders import Autoencoder
@@ -114,6 +208,7 @@ if __name__ == "__main__":
     from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, coverage_error
     import pandas as pd
     import time
+    import os
     
     random_state = 0
     dataset_name = "cbf"
@@ -170,22 +265,7 @@ if __name__ == "__main__":
     blackbox = build_resnet(n_timesteps, n_outputs)
     blackbox.load_weights("./blackbox_checkpoints/cbf_blackbox_resnet_20191106_145242_best_weights_+1.00_.hdf5")
     resnet = blackbox
-    """
-    params = {"input_shape": (n_timesteps,1),
-          "n_blocks": 8, 
-          "latent_dim": 2,
-          "encoder_latent_layer_type": "variational",
-          "encoder_args": {"filters":[2,4,8,16,32,64,128,256], 
-                            "kernel_size":[21,18,15,13,11,8,5,3], 
-                            "padding":"same", 
-                            "activation":"elu", 
-                            "pooling":[1,1,1,1,1,1,1,1]}
-         }
-
-    aut = Autoencoder(verbose = False, **params)
-    encoder, decoder, autoencoder = aut.build()
-    autoencoder.load_weights("./autoencoder_checkpoints/cbf_autoencoder_20191106_144909_best_weights_+136.8745_.hdf5")
-    """
+    
     params = {"input_shape": (n_timesteps,1),
           "n_blocks": 8, 
           "latent_dim": 2,
@@ -202,56 +282,48 @@ if __name__ == "__main__":
     autoencoder.load_weights("./autoencoder_checkpoints/cbf_autoencoder_20191106_144056_best_weights_+1.0504_.hdf5")
     
     blackbox = resnet
+    blackbox_predict = BlackboxPredictWrapper(blackbox, 3)
     encoder = autoencoder.layers[1]
     decoder = autoencoder.layers[2]
     blackbox_input_dimensions = 3
     labels = ["cylinder", "bell", "funnel"]
     
     
-    agnostic_explainers = build_neighborhoods(blackbox, 
-                           encoder, 
-                           decoder, 
-                           autoencoder, 
-                           X_exp_test,
-                           y_exp_test, 
-                           blackbox_input_dimensions, 
-                           ngen = 1, 
-                           size = 50, 
-                           neigh_type = "geneticp",
-                           labels = ["cylinder", "bell", "funnel"])
-    
-    file_path = "./agnostic_explainers/" + dataset_name + "_agnosticvsglobal_" + time.strftime("%Y%m%d_%H%M%S") + ".joblib"
-    dump(agnostic_explainers, file_path)
-    
-    blackbox_predict = BlackboxPredictWrapper(blackbox, 3)
-    global_surrogate = AgnosticGlobalExplainer(random_state = random_state)
+    file_path = "./agnostic_explainers/" + dataset_name + "_" + time.strftime("%Y%m%d_%H%M%S")
+    os.mkdir(file_path + "/")
+    max_iter = 1
+    global_surrogate = AgnosticGlobalExplainer(random_state = random_state, max_iter = max_iter, labels = labels)
     global_surrogate.fit(X_exp_train[:,:,0], blackbox_predict.predict(X_exp_train))
-    y_blackbox_original_GLOBAL = blackbox_predict.predict(X_exp_test)
-    y_blackbox_reconstructed_GLOBAL = blackbox_predict.predict(decoder.predict(encoder.predict(X_exp_test)))
-    y_surrogate_original_GLOBAL = global_surrogate.predict(X_exp_test[:,:,0])
-    y_surrogate_reconstructed_GLOBAL = global_surrogate.predict(decoder.predict(encoder.predict(X_exp_test))[:,:,0])
-    global_results = {"y_blackbox_original_GLOBAL":y_blackbox_original_GLOBAL,
-                      "y_blackbox_reconstructed_GLOBAL":y_blackbox_reconstructed_GLOBAL,
-                      "y_surrogate_original_GLOBAL":y_surrogate_original_GLOBAL,
-                      "y_surrogate_reconstructed_GLOBAL":y_surrogate_reconstructed_GLOBAL
-                      }
-    local_results = build_local_shapelet_trees(agnostic_explainers, random_state = random_state)
     
-    results = {**local_results, **global_results}
-    results_df = pd.DataFrame(results)
+    agnostic_explainers = build_agnostic_local_explainers(blackbox, 
+                                   encoder, 
+                                   decoder, 
+                                   autoencoder, 
+                                   X_exp_test, 
+                                   y_exp_test,
+                                   blackbox_input_dimensions = blackbox_input_dimensions,
+                                   labels = labels,
+                                   size = 30,
+                                   neigh_type = "geneticp",
+                                   ngen = 1,
+                                  max_iter=max_iter,
+                                  random_state = random_state
+                                   )
     
-    local_classification_report = classification_report(results_df["y_blackbox_original_LOCAL"], results_df["y_surrogate_reconstructed_LOCAL"])
-    global_classification_report = classification_report(results_df["y_blackbox_original_GLOBAL"], results_df["y_surrogate_original_GLOBAL"])
-    reconstrution_classification_report = classification_report(results_df["y_blackbox_original_LOCAL"], results_df["y_blackbox_reconstructed_LOCAL"])
+    results_df = get_all_predictions(agnostic_explainers, global_surrogate, blackbox_predict, X_exp_test, blackbox_predict.predict(X_exp_train))
+    results_df.to_csv(file_path + "/" + "results_df.csv", sep = ";", index = False)
     
-    local_fidelity = accuracy_score(results_df["y_blackbox_original_LOCAL"], results_df["y_surrogate_reconstructed_LOCAL"])
-    global_fidelity = accuracy_score(results_df["y_blackbox_original_GLOBAL"], results_df["y_surrogate_original_GLOBAL"])
-    reconstruction_fidelity = accuracy_score(results_df["y_blackbox_original_LOCAL"], results_df["y_blackbox_reconstructed_LOCAL"])
-
+    print_report(results_df)
     
-    print("local fidelity: ", local_fidelity)
-    print("global fidelity: ", global_fidelity)
-    print("reconstruction fidelity: ", reconstruction_fidelity)
+    save_shapelet_model(global_surrogate, file_path + "/")
+    massive_save_agnostic_local_explainers(agnostic_explainers, file_path, verbose = True)
+    
+    global_surrogate = load_shapelet_model(file_path + "/")
+    agnostic_explainers = massive_load_agnostic_local_explainers(file_path, verbose = True)
+    
+    results_df_loaded = get_all_predictions(agnostic_explainers, global_surrogate, blackbox_predict, X_exp_test, blackbox_predict.predict(X_exp_train))
+    
+    print((results_df_loaded.values != results_df.values).sum())
     
     
     
