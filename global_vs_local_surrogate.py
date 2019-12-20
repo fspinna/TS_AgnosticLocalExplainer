@@ -51,8 +51,15 @@ def build_agnostic_local_explainers(blackbox,
                               multi_label=False,
                               one_vs_rest=False,
                               verbose = True,
+                              filter_crules = False,
                               ngen = ngen)
         agnostic.LOREM_tree_rules_extraction()
+        agnostic.build_rules_dataframes()
+        if len(agnostic.rules_dataframes.keys()) == 1: 
+            print()
+            print("NO CRULES!!!")
+            print()
+        agnostic.rules_check_by_augmentation(num_samples = 1000, remove_bad = True, keep_one_crule = True)
         agnostic.build_shapelet_explainer(l=l, 
                                            r=r, 
                                            weight_regularizer=weight_regularizer, 

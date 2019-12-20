@@ -611,22 +611,26 @@ class AgnosticGlobalExplainer(object):
     def coverage_score(self, ts):
         ts = ts.reshape(1,-1)
         ts_transformed = self.shapelet_generator.transform(ts)
-        ts_leave_id = self.surrogate.apply(ts_transformed)
+        ts_transformed_binarized = 1*(ts_transformed < (np.quantile(self.fitted_transformed_dataset,self.best_quantile)))
+        ts_leave_id = self.surrogate.apply(ts_transformed_binarized)
         
-        all_leaves = self.surrogate.apply(self.fitted_transformed_dataset)
+        all_leaves = self.surrogate.apply(self.fitted_transformed_binarized_dataset)
         coverage = (all_leaves == ts_leave_id[0]).sum()/len(all_leaves)
         
         return coverage
         
     def precision_score(self, ts, y, X = None):
         if X is None:
-            X = self.fitted_transformed_dataset
+            X = self.fitted_transformed_binarized_dataset
         else:
             X = self.shapelet_generator.transform(X)
+            X = 1*(X < (np.quantile(self.fitted_transformed_dataset,self.best_quantile)))
+            
         y_surrogate = self.surrogate.predict(X)
         ts = ts.reshape(1,-1)
         ts_transformed = self.shapelet_generator.transform(ts)
-        ts_leave_id = self.surrogate.apply(ts_transformed)
+        ts_transformed_binarized = 1*(ts_transformed < (np.quantile(self.fitted_transformed_dataset,self.best_quantile)))
+        ts_leave_id = self.surrogate.apply(ts_transformed_binarized)
         
         all_leaves = self.surrogate.apply(X)
         idxs = np.argwhere(all_leaves == ts_leave_id[0])

@@ -332,7 +332,7 @@ class AgnosticLocalExplainer(object):
                     del(self.rules_dataframes_latent[rule])
                     print("Done!")
         
-        if keep_one_crule and len(self.rules_dataframes.keys()) == 1:
+        if keep_one_crule and len(self.rules_dataframes.keys()) == 1 and len(rules_dataframes_copy.keys()) != 1:
             print("keeping best crule... ", end = " ")
             self.rules_dataframes[best_crule] = rules_dataframes_copy[best_crule]
             self.rules_dataframes_latent[best_crule] = rules_dataframes_latent_copy[best_crule]
