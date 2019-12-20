@@ -124,7 +124,7 @@ def get_local_predictions(agnostic_explainers):
         y_blackbox_original = agnostic.blackbox_predict(agnostic.instance_to_explain.reshape(1,-1,1))[0]
         y_blackbox_reconstructed = agnostic.blackbox_decode_and_predict(agnostic.instance_to_explain_latent.reshape(1,-1))[0]
         y_surrogate_original = agnostic.shapelet_explainer.predict(agnostic.instance_to_explain.reshape(1,-1))[0]
-        y_surrogate_reconstructed = agnostic.shapelet_explainer.predict(decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)))[0]
+        y_surrogate_reconstructed = agnostic.shapelet_explainer.predict(agnostic.decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)))[0]
         y_LORE = agnostic.LOREM_Explanation.dt_pred
         fidelity_LORE = agnostic.LOREM_Explanation.fidelity
         coverage_LORE = agnostic.LOREM_coverage
@@ -158,7 +158,7 @@ def get_local_predictions(agnostic_explainers):
             "precision_shapelet_LOCAL": np.array(precision_shapelet_LOCAL)
             }
 
-def get_global_predictions(global_surrogate, blackbox_predict, dataset, y_blackbox_train):
+def get_global_predictions(global_surrogate, blackbox_predict, dataset, y_blackbox_train, encoder, decoder):
     y_blackbox_original_GLOBAL = blackbox_predict.predict(dataset)
     y_blackbox_reconstructed_GLOBAL = blackbox_predict.predict(decoder.predict(encoder.predict(dataset)))
     y_surrogate_original_GLOBAL = global_surrogate.predict(dataset[:,:,0])
@@ -177,9 +177,9 @@ def get_global_predictions(global_surrogate, blackbox_predict, dataset, y_blackb
                       }
     return global_results
 
-def get_all_predictions(agnostic_explainers, global_surrogate, blackbox_predict, dataset, y_blackbox_train):
+def get_all_predictions(agnostic_explainers, global_surrogate, blackbox_predict, dataset, y_blackbox_train, encoder, decoder):
     local_results = get_local_predictions(agnostic_explainers)
-    global_results = get_global_predictions(global_surrogate, blackbox_predict, dataset, y_blackbox_train)
+    global_results = get_global_predictions(global_surrogate, blackbox_predict, dataset, y_blackbox_train, encoder, decoder)
     results = {**local_results, **global_results}
     results_df = pd.DataFrame(results)
     return results_df
@@ -317,7 +317,7 @@ if __name__ == "__main__":
                                   random_state = random_state
                                    )
     
-    results_df = get_all_predictions(agnostic_explainers, global_surrogate, blackbox_predict, X_exp_test, blackbox_predict.predict(X_exp_train))
+    results_df = get_all_predictions(agnostic_explainers, global_surrogate, blackbox_predict, X_exp_test, blackbox_predict.predict(X_exp_train), encoder, decoder)
     results_df.to_csv(file_path + "/" + "results_df.csv", sep = ";", index = False)
     
     print_report(results_df)
