@@ -8,6 +8,7 @@ Created on Wed Dec  4 11:16:22 2019
 
 from agnosticlocalexplainer import AgnosticLocalExplainer, save_agnostic_local_explainer, load_agnostic_local_explainer
 import numpy as np
+import pandas as pd
 
 def build_agnostic_local_explainers(blackbox, 
                                    encoder, 
