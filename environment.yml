@@ -1,6 +1,7 @@
 name: tesi
 channels:
   - defaults
+  - conda-forge
 dependencies:
   - python=3.6
   - keras
@@ -23,6 +24,7 @@ dependencies:
   - shap
   - pyts
   - graphviz
+  - pip
   - pip:
     - torchvision
     - deap
