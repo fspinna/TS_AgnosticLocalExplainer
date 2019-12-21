@@ -30,7 +30,8 @@ def build_agnostic_local_explainers(blackbox,
                                   weight_regularizer=.01, 
                                   optimizer="sgd", 
                                   max_iter=100,
-                                  random_state = None
+                                  random_state = None,
+                                  distance_quantile_threshold=np.array(list(range(1,10)))/10
                                    ):
     agnostic_explainers = []
     counter = 0
@@ -70,7 +71,8 @@ def build_agnostic_local_explainers(blackbox,
                                            weight_regularizer=weight_regularizer, 
                                            optimizer=optimizer, 
                                            max_iter=max_iter,
-                                           random_state = random_state
+                                           random_state = random_state,
+                                           distance_quantile_threshold = distance_quantile_threshold
                                            )
         agnostic_explainers.append(agnostic)
         counter += 1 
