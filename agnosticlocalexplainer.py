@@ -908,13 +908,14 @@ class AgnosticLocalExplainer(object):
         return self.shapelet_explainer
     """
     
-    def build_shapelet_explainer(self, l=0.1, r=2, weight_regularizer=.01, optimizer="sgd", max_iter=100, random_state = None):
+    def build_shapelet_explainer(self, l=0.1, r=2, weight_regularizer=.01, optimizer="sgd", max_iter=100, random_state = None, distance_quantile_threshold = np.array(list(range(1,10)))/10):
         self.shapelet_explainer = AgnosticGlobalExplainer(labels = self.labels,
                                                           l = l,
                                                           r = r, 
                                                           weight_regularizer = weight_regularizer,
                                                           optimizer = optimizer,
                                                           random_state = random_state,
+                                                          distance_quantile_threshold = distance_quantile_threshold,
                                                           max_iter = max_iter) 
         
         X_train_shapelet = []
