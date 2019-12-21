@@ -708,9 +708,11 @@ if __name__ == '__main__':
     blackbox = load("./blackbox_checkpoints/cbf_blackbox_knn_20191106_145654.joblib")
     
     #params = {"optimizer":keras.optimizers.Adagrad(lr=.1),"max_iter": 50, "random_state":random_state}
-    params = {"optimizer":keras.optimizers.Adagrad(lr=.1),"max_iter": 50, "random_state":random_state, "distance_quantile_threshold":np.array(list(range(1,10)))/10}
+    params = {"optimizer":"sgd","max_iter": 50, "random_state":random_state}#, "distance_quantile_threshold":np.array(list(range(1,10)))/10}
     global_surrogate = AgnosticGlobalExplainer(**params)
-    global_surrogate.fit(X_train[:,:,0], blackbox.predict(X_train[:,:,0]))
+    global_surrogate.fit(X_exp_train[:,:,0], blackbox.predict(X_exp_train[:,:,0]))
+    print("test fidelity: ", accuracy_score(blackbox.predict(X_exp_test[:,:,0]),
+               global_surrogate.predict(X_exp_test[:,:,0])))
     """
     global_surrogate.fit(X_train[:,:,0], blackbox.predict(X_train[:,:,0]))
     global_surrogate.plot_series_shapelet_explanation(X_train[2].ravel(), blackbox.predict(X_train[2].ravel().reshape(1,-1)), figsize=(20,3))
