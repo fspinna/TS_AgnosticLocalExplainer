@@ -1321,13 +1321,13 @@ if __name__ == '__main__':
                           neigh_type = 'geneticp', 
                           categorical_use_prob = True,
                           continuous_fun_estimation = False, 
-                          size = 1000,
+                          size = 100,
                           ocr = 0.1, 
                           multi_label=False,
                           one_vs_rest=False,
                           verbose = True,
                           filter_crules = False,
-                          ngen = 10)
+                          ngen = 1)
     print("\nExtracting Rules")
     agnostic.LOREM_tree_rules_extraction()
     agnostic.build_rules_dataframes()
