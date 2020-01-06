@@ -650,3 +650,214 @@ def benchmark_phalanges(save_output = False):
         results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
     
     return results_blackboxes_df, results_autoencoders_df
+
+
+def benchmark_epileptic(save_output = False):
+    random_state = 0
+    dataset_path = "./datasets/EpilepticSeizureRecognition/"
+    dataset_name = "EpilepticSeizureRecognition"
+    print(dataset_name)
+    X = pd.read_csv(dataset_path + "data.csv", index_col = 0)
+    y = np.array(X["y"])
+    y_all = np.ravel(y).astype("int")
+    for i in range(2,6):
+        y_all[y_all == i] = 2
+    le = LabelEncoder()
+    le.fit(y_all)
+    y_all = le.transform(y_all)
+    X_all = X.drop("y", axis = 1).values
+    from imblearn.under_sampling import RandomUnderSampler # doctest: +NORMALIZE_WHITESPACE
+    rus = RandomUnderSampler(random_state=random_state)
+    X_all, y_all = rus.fit_resample(X_all, y_all)
+    X_all = X_all.reshape((X_all.shape[0], X_all.shape[1], 1))
+    
+    print("X SHAPE: ", X_all.shape)
+    print("y SHAPE: ", y_all.shape)
+    unique, counts = np.unique(y_all, return_counts=True)
+    print("\nCLASSES BALANCE")
+    for i, label in enumerate(unique):
+        print(label, ": ", round(counts[i]/sum(counts), 2))
+        
+    # BLACKBOX TRAIN/TEST SETS SPLIT
+    X_train, X_test, y_train, y_test = train_test_split(X_all, y_all, 
+                                                      test_size=0.2, stratify = y_all, random_state=random_state)
+    
+    # BLACKBOX/EXPLANATION SETS SPLIT
+    X_train, X_exp, y_train, y_exp = train_test_split(X_train, y_train, 
+                                                      test_size=0.3, stratify = y_train, random_state=random_state)
+    
+    # BLACKBOX TRAIN/VALIDATION SETS SPLIT
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, 
+                                                      test_size=0.2, stratify = y_train, random_state=random_state)
+    
+    # EXPLANATION TRAIN/TEST SETS SPLIT
+    X_exp_train, X_exp_test, y_exp_train, y_exp_test = train_test_split(X_exp, y_exp, 
+                                                                        test_size=0.2, 
+                                                                        stratify = y_exp, 
+                                                                        random_state=random_state)
+    
+    # EXPLANATION TRAIN/VALIDATION SETS SPLIT
+    X_exp_train, X_exp_val, y_exp_train, y_exp_val = train_test_split(X_exp_train, y_exp_train, 
+                                                                      test_size=0.2, 
+                                                                      stratify = y_exp_train, 
+                                                                      random_state=random_state)
+    
+    print("SHAPES:")
+    print("BLACKBOX TRAINING SET: ", X_train.shape)
+    print("BLACKBOX VALIDATION SET: ", X_val.shape)
+    print("BLACKBOX TEST SET: ", X_test.shape)
+    print("EXPLANATION TRAINING SET: ", X_exp_train.shape)
+    print("EXPLANATION VALIDATION SET: ", X_exp_val.shape)
+    print("EXPLANATION TEST SET: ", X_exp_test.shape)
+    
+    n_timesteps, n_outputs, n_features = X_train.shape[1], len(np.unique(y_all)), 1 
+    print("TIMESTEPS: ", n_timesteps)
+    print("N. LABELS: ", n_outputs)
+    
+    
+    results_blackboxes = {"resnet":[],
+               "simplecnn":[],
+               "knn": [],
+              }
+    
+    results_blackboxes_rows = ["train_mse", 
+                    "train_accuracy",
+                    "validation_mse", 
+                    "validation_accuracy",
+                    "test_mse", 
+                    "test_accuracy",
+                   ]
+    dataset_list = [(X_train, y_train), (X_val, y_val), (X_test, y_test)]
+    dataset_list_exp = [(X_exp_train, y_exp_train), (X_exp_val, y_exp_val), (X_exp_test, y_exp_test)]
+    
+    resnet = build_resnet(n_timesteps, n_outputs)
+    resnet.load_weights("./final_models/EpilepticSeizureRecognition/EpilepticSeizureRecognition_blackbox_resnet_20200105_233014_best_weights_+0.99_.hdf5")
+    resnet_predict = BlackboxPredictWrapper(resnet, 3)
+    
+    simplecnn = build_simple_CNN(n_timesteps, n_outputs)
+    simplecnn.load_weights("./final_models/EpilepticSeizureRecognition/EpilepticSeizureRecognition_blackbox_simpleCNN_20200105_225722_best_weights_+0.98_.hdf5")
+    simplecnn_predict = BlackboxPredictWrapper(simplecnn, 3)
+    
+    knn = load("./final_models/EpilepticSeizureRecognition/EpilepticSeizureRecognition_blackbox_knn_20200105_225631.joblib")
+    knn_predict = BlackboxPredictWrapper(knn, 2)
+    
+    predicts = [(resnet_predict, "resnet"), (simplecnn_predict, "simplecnn"), (knn_predict, "knn")]
+    blackboxes = [(resnet, "resnet"), (simplecnn, "simplecnn"), (knn, "knn")]
+    
+    for blackbox_predict in blackboxes:
+        for dataset in dataset_list:
+            real = dataset[1]
+            if blackbox_predict[1] in ["resnet", "simplecnn"]:
+                prediction = blackbox_predict[0].evaluate(dataset[0], real)
+                mse = prediction[0]
+                accuracy = prediction[1]
+            else:
+                accuracy = blackbox_predict[0].score(dataset[0].reshape(dataset[0].shape[:2]), real)
+                mse = mean_squared_error(real, blackbox_predict[0].predict(dataset[0].reshape(dataset[0].shape[:2])))
+            #print(prediction.shape)
+            results_blackboxes[blackbox_predict[1]].append(mse)
+            results_blackboxes[blackbox_predict[1]].append(accuracy)
+            
+    results_blackboxes_df = pd.DataFrame(results_blackboxes, index = results_blackboxes_rows)  
+
+    latent_dim = 30
+    results_autoencoders = {"ae_cnn": [latent_dim],
+                            "vae_cnn": [latent_dim],
+                            "aae_cnn": [latent_dim],
+               "ae_lstm": [latent_dim]
+              }
+    
+    results_autoencoders_rows = ["latent_dimension", "train_mse", "validation_mse", "test_mse"]
+    
+    
+    for blackbox_predict in predicts:
+        for X in ["train", "validation", "test"]:
+            key = "reconstruction_" + blackbox_predict[1] + "_" + X + "_accuracy"
+            results_autoencoders_rows.append(key)
+    
+    # STANDARD AUTOENCODER
+    params = {'input_shape': (178, 1), 
+              'n_blocks': 8, 
+              'latent_dim': 30, 
+              'encoder_latent_layer_type': 'dense', 
+              'encoder_args': {'filters': [2, 4, 8, 16, 32, 64, 128, 256], 
+                               'kernel_size': [21, 18, 15, 13, 11, 8, 5, 3], 
+                               'padding': 'same', 
+                               'activation': 'elu', 
+                               'pooling': [1, 1, 1, 1, 1, 1, 1, 1]}}
+    aut = Autoencoder(verbose = False, **params)
+    _, _, ae_cnn = aut.build()
+    ae_cnn.load_weights("./final_models/EpilepticSeizureRecognition/EpilepticSeizureRecognition_autoencoder_20200106_111007_best_weights_+14872.8621_.hdf5")
+    
+    # VARIATIONAL AUTOENCODER
+    params = {'input_shape': (178, 1), 
+              'n_blocks': 8, 
+              'latent_dim': 30, 
+              'encoder_latent_layer_type': 'variational', 
+              'encoder_args': {'filters': [2, 4, 8, 16, 32, 64, 128, 256], 
+                               'kernel_size': [21, 18, 15, 13, 11, 8, 5, 3], 
+                               'padding': 'same', 
+                               'activation': 'elu', 
+                               'pooling': [1, 1, 1, 1, 1, 1, 1, 1]}}
+    aut = Autoencoder(verbose = False, **params)
+    _, _, vae_cnn = aut.build()
+    vae_cnn.load_weights("./final_models/EpilepticSeizureRecognition/EpilepticSeizureRecognition_autoencoder_20200106_115956_best_weights_+4548653.0325_.hdf5")
+    
+    #DISCRIMINATIVE AUTOENCODER
+    params = {'input_shape': (178, 1), 
+              'n_blocks': 8, 
+              'latent_dim': 30, 
+              'encoder_latent_layer_type': 'dense', 
+              'encoder_args': {'filters': [2, 4, 8, 16, 32, 64, 128, 256], 
+                               'kernel_size': [21, 18, 15, 13, 11, 8, 5, 3], 
+                               'padding': 'same', 
+                               'activation': 'elu', 
+                               'pooling': [1, 1, 1, 1, 1, 1, 1, 1]}, 
+                               'discriminator_args': {'units': [100, 100], 
+                                                      'activation': 'relu'}, 
+                                                      'n_blocks_discriminator': 2}
+    aut = DiscriminativeAutoencoder(verbose = False, **params)
+    _, _, _, aae_cnn = aut.build()
+    aae_cnn.load_weights("./final_models/EpilepticSeizureRecognition/EpilepticSeizureRecognition_autoencoder_20200106_122042_best_weights_+19803.450249_.hdf5")
+    
+    
+    # STANDARD (LSTM) AUTOENCODER
+    ae_lstm = build_lstm_autoencoder(n_timesteps, latent_dim)
+    ae_lstm.load_weights("./final_models/EpilepticSeizureRecognition/EpilepticSeizureRecognition_lstm_autoencoder_20200106_142105_best_weights_+59024.272731_.hdf5")
+    
+    autoencoders = [(ae_cnn, "ae_cnn"),(vae_cnn, "vae_cnn"),(aae_cnn, "aae_cnn"),(ae_lstm, "ae_lstm")]
+    
+    
+    for autoencoder in autoencoders:
+        for dataset in dataset_list_exp:
+            real = dataset[0]
+            if ("aae" in autoencoder[1]) or ("avae" in autoencoder[1]):
+                predicted = autoencoder[0].predict(real)[0]
+            else:
+                predicted = autoencoder[0].predict(real)
+            mse = mean_squared_error(real.flatten(), predicted.flatten())
+            results_autoencoders[autoencoder[1]].append(mse)
+            
+    for autoencoder in autoencoders:
+        for blackbox_predict in predicts:
+            for dataset in dataset_list_exp:
+                real = dataset[0]
+                real_class = blackbox_predict[0].predict(real)
+                if ("aae" in autoencoder[1]) or ("avae" in autoencoder[1]):
+                    predicted = autoencoder[0].predict(real)[0]
+                else:
+                    predicted = autoencoder[0].predict(real)
+                predicted_class = blackbox_predict[0].predict(predicted)
+                accuracy = accuracy_score(real_class, predicted_class)
+                results_autoencoders[autoencoder[1]].append(accuracy)
+                
+        
+    results_autoencoders_df = pd.DataFrame(results_autoencoders, index = results_autoencoders_rows)
+    
+    if save_output:
+        results_autoencoders_df.to_csv("./final_models/" + dataset_name + "_autoencoders_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+        results_blackboxes_df.to_csv("./final_models/" + dataset_name + "_blackboxes_" + time.strftime("%Y%m%d_%H%M%S") + ".csv", sep = ";")
+    
+    return results_blackboxes_df, results_autoencoders_df
+    
+    
