@@ -105,13 +105,14 @@ def massive_save_agnostic_local_explainers(agnostic_explainers, file_path, verbo
             print(i+1, "/", len(agnostic_explainers))
     dump(agnostic_explainers, file_path + "/" + "agnostic_explainers.pkl")
     
-def massive_load_agnostic_local_explainers(file_path, verbose = False):
+def massive_load_agnostic_local_explainers(file_path, verbose = False, load_shapelet_explainers = True):
     folder = file_path + "/"
     agnostic_explainers = load(file_path + "/" + "agnostic_explainers.pkl")
-    for i, agnostic in enumerate(agnostic_explainers):
-        agnostic.shapelet_explainer = load_shapelet_model(folder + "_" + str(i) + "_")
-        if verbose:
-            print(i+1, "/", len(agnostic_explainers))
+    if load_shapelet_explainers:
+        for i, agnostic in enumerate(agnostic_explainers):
+            agnostic.shapelet_explainer = load_shapelet_model(folder + "_" + str(i) + "_")
+            if verbose:
+                print(i+1, "/", len(agnostic_explainers))
     return agnostic_explainers
     
 
