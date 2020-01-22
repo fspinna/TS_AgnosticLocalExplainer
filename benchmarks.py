@@ -17,6 +17,7 @@ from autoencoders import Autoencoder, DiscriminativeAutoencoder
 from sklearn.metrics import mean_squared_error, accuracy_score
 from toy_autoencoders import build_lstm_autoencoder
 import time
+from sklearn.metrics import f1_score
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -79,10 +80,13 @@ def benchmark_cbf(save_output = False):
     
     results_blackboxes_rows = ["train_mse", 
                     "train_accuracy",
+                    "train_f1_score",
                     "validation_mse", 
                     "validation_accuracy",
+                    "validation_f1_score",
                     "test_mse", 
                     "test_accuracy",
+                    "test_f1_score",
                    ]
     dataset_list = [(X_train, y_train), (X_val, y_val), (X_test, y_test)]
     dataset_list_exp = [(X_exp_train, y_exp_train), (X_exp_val, y_exp_val), (X_exp_test, y_exp_test)]
@@ -101,9 +105,10 @@ def benchmark_cbf(save_output = False):
     predicts = [(resnet_predict, "resnet"), (simplecnn_predict, "simplecnn"), (knn_predict, "knn")]
     blackboxes = [(resnet, "resnet"), (simplecnn, "simplecnn"), (knn, "knn")]
     
-    for blackbox_predict in blackboxes:
+    for i, blackbox_predict in enumerate(blackboxes):
         for dataset in dataset_list:
             real = dataset[1]
+            predicted = predicts[i][0].predict(dataset[0])
             if blackbox_predict[1] in ["resnet", "simplecnn"]:
                 prediction = blackbox_predict[0].evaluate(dataset[0], real)
                 mse = prediction[0]
@@ -112,8 +117,10 @@ def benchmark_cbf(save_output = False):
                 accuracy = blackbox_predict[0].score(dataset[0].reshape(dataset[0].shape[:2]), real)
                 mse = mean_squared_error(real, blackbox_predict[0].predict(dataset[0].reshape(dataset[0].shape[:2])))
             #print(prediction.shape)
+            f1 = f1_score(real, predicted, average = "weighted")
             results_blackboxes[blackbox_predict[1]].append(mse)
             results_blackboxes[blackbox_predict[1]].append(accuracy)
+            results_blackboxes[blackbox_predict[1]].append(f1)
             
     results_blackboxes_df = pd.DataFrame(results_blackboxes, index = results_blackboxes_rows)  
 
@@ -310,10 +317,13 @@ def benchmark_HAR(save_output = False):
     
     results_blackboxes_rows = ["train_mse", 
                     "train_accuracy",
+                    "train_f1_score",
                     "validation_mse", 
                     "validation_accuracy",
+                    "validation_f1_score",
                     "test_mse", 
                     "test_accuracy",
+                    "test_f1_score",
                    ]
     dataset_list = [(X_train, y_train), (X_val, y_val), (X_test, y_test)]
     dataset_list_exp = [(X_exp_train, y_exp_train), (X_exp_val, y_exp_val), (X_exp_test, y_exp_test)]
@@ -332,9 +342,10 @@ def benchmark_HAR(save_output = False):
     predicts = [(resnet_predict, "resnet"), (simplecnn_predict, "simplecnn"), (knn_predict, "knn")]
     blackboxes = [(resnet, "resnet"), (simplecnn, "simplecnn"), (knn, "knn")]
     
-    for blackbox_predict in blackboxes:
+    for i, blackbox_predict in enumerate(blackboxes):
         for dataset in dataset_list:
             real = dataset[1]
+            predicted = predicts[i][0].predict(dataset[0])
             if blackbox_predict[1] in ["resnet", "simplecnn"]:
                 prediction = blackbox_predict[0].evaluate(dataset[0], real)
                 mse = prediction[0]
@@ -343,8 +354,10 @@ def benchmark_HAR(save_output = False):
                 accuracy = blackbox_predict[0].score(dataset[0].reshape(dataset[0].shape[:2]), real)
                 mse = mean_squared_error(real, blackbox_predict[0].predict(dataset[0].reshape(dataset[0].shape[:2])))
             #print(prediction.shape)
+            f1 = f1_score(real, predicted, average = "weighted")
             results_blackboxes[blackbox_predict[1]].append(mse)
             results_blackboxes[blackbox_predict[1]].append(accuracy)
+            results_blackboxes[blackbox_predict[1]].append(f1)
             
     results_blackboxes_df = pd.DataFrame(results_blackboxes, index = results_blackboxes_rows)  
 
@@ -512,10 +525,13 @@ def benchmark_phalanges(save_output = False):
     
     results_blackboxes_rows = ["train_mse", 
                     "train_accuracy",
+                    "train_f1_score",
                     "validation_mse", 
                     "validation_accuracy",
+                    "validation_f1_score",
                     "test_mse", 
                     "test_accuracy",
+                    "test_f1_score",
                    ]
     dataset_list = [(X_train, y_train), (X_val, y_val), (X_test, y_test)]
     dataset_list_exp = [(X_exp_train, y_exp_train), (X_exp_val, y_exp_val), (X_exp_test, y_exp_test)]
@@ -534,9 +550,10 @@ def benchmark_phalanges(save_output = False):
     predicts = [(resnet_predict, "resnet"), (simplecnn_predict, "simplecnn"), (knn_predict, "knn")]
     blackboxes = [(resnet, "resnet"), (simplecnn, "simplecnn"), (knn, "knn")]
     
-    for blackbox_predict in blackboxes:
+    for i, blackbox_predict in enumerate(blackboxes):
         for dataset in dataset_list:
             real = dataset[1]
+            predicted = predicts[i][0].predict(dataset[0])
             if blackbox_predict[1] in ["resnet", "simplecnn"]:
                 prediction = blackbox_predict[0].evaluate(dataset[0], real)
                 mse = prediction[0]
@@ -545,8 +562,10 @@ def benchmark_phalanges(save_output = False):
                 accuracy = blackbox_predict[0].score(dataset[0].reshape(dataset[0].shape[:2]), real)
                 mse = mean_squared_error(real, blackbox_predict[0].predict(dataset[0].reshape(dataset[0].shape[:2])))
             #print(prediction.shape)
+            f1 = f1_score(real, predicted, average = "weighted")
             results_blackboxes[blackbox_predict[1]].append(mse)
             results_blackboxes[blackbox_predict[1]].append(accuracy)
+            results_blackboxes[blackbox_predict[1]].append(f1)
             
     results_blackboxes_df = pd.DataFrame(results_blackboxes, index = results_blackboxes_rows)  
 
@@ -722,10 +741,13 @@ def benchmark_epileptic(save_output = False):
     
     results_blackboxes_rows = ["train_mse", 
                     "train_accuracy",
+                    "train_f1_score",
                     "validation_mse", 
                     "validation_accuracy",
+                    "validation_f1_score",
                     "test_mse", 
                     "test_accuracy",
+                    "test_f1_score",
                    ]
     dataset_list = [(X_train, y_train), (X_val, y_val), (X_test, y_test)]
     dataset_list_exp = [(X_exp_train, y_exp_train), (X_exp_val, y_exp_val), (X_exp_test, y_exp_test)]
@@ -744,9 +766,10 @@ def benchmark_epileptic(save_output = False):
     predicts = [(resnet_predict, "resnet"), (simplecnn_predict, "simplecnn"), (knn_predict, "knn")]
     blackboxes = [(resnet, "resnet"), (simplecnn, "simplecnn"), (knn, "knn")]
     
-    for blackbox_predict in blackboxes:
+    for i, blackbox_predict in enumerate(blackboxes):
         for dataset in dataset_list:
             real = dataset[1]
+            predicted = predicts[i][0].predict(dataset[0])
             if blackbox_predict[1] in ["resnet", "simplecnn"]:
                 prediction = blackbox_predict[0].evaluate(dataset[0], real)
                 mse = prediction[0]
@@ -755,8 +778,10 @@ def benchmark_epileptic(save_output = False):
                 accuracy = blackbox_predict[0].score(dataset[0].reshape(dataset[0].shape[:2]), real)
                 mse = mean_squared_error(real, blackbox_predict[0].predict(dataset[0].reshape(dataset[0].shape[:2])))
             #print(prediction.shape)
+            f1 = f1_score(real, predicted, average = "weighted")
             results_blackboxes[blackbox_predict[1]].append(mse)
             results_blackboxes[blackbox_predict[1]].append(accuracy)
+            results_blackboxes[blackbox_predict[1]].append(f1)
             
     results_blackboxes_df = pd.DataFrame(results_blackboxes, index = results_blackboxes_rows)  
 

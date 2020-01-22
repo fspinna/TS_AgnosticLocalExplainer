@@ -7,12 +7,14 @@ Created on Wed Dec  4 11:16:22 2019
 """
 
 from agnosticlocalexplainer import AgnosticLocalExplainer, save_agnostic_local_explainer, load_agnostic_local_explainer
-from agnosticglobalexplainer import AgnosticGlobalExplainer, save_shapelet_model, load_shapelet_model
+from agnosticglobalexplainer import AgnosticGlobalExplainer, save_shapelet_model, load_shapelet_model, extract_used_shapelets, shapelet_stability_measure
 import numpy as np
 from joblib import load, dump
 import pandas as pd
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, coverage_error
-    
+from sklearn.neighbors import NearestNeighbors
+from scipy.spatial.distance import cdist
+#from shap_utils import shap_ts, shap_output_to_point_by_point, shap_f
     
 def build_agnostic_local_explainers(blackbox, 
                                    encoder, 
@@ -188,23 +190,232 @@ def get_global_predictions(global_surrogate, blackbox_predict, dataset, y_blackb
 def get_all_predictions(agnostic_explainers, global_surrogate, blackbox_predict, dataset, y_blackbox_train, encoder, decoder):
     local_results = get_local_predictions(agnostic_explainers)
     global_results = get_global_predictions(global_surrogate, blackbox_predict, dataset, y_blackbox_train, encoder, decoder)
-    results = {**local_results, **global_results}
+    #stability = {"stability": calculate_stability(agnostic_explainers, dataset, encoder)}
+    results = {**local_results, **global_results}#, **stability}
     results_df = pd.DataFrame(results)
     return results_df
 
-def print_report(results_df):
-    local_classification_report = classification_report(results_df["y_blackbox_original_LOCAL"], results_df["y_surrogate_reconstructed_LOCAL"])
-    global_classification_report = classification_report(results_df["y_blackbox_original_GLOBAL"], results_df["y_surrogate_original_GLOBAL"])
-    reconstrution_classification_report = classification_report(results_df["y_blackbox_original_LOCAL"], results_df["y_blackbox_reconstructed_LOCAL"])
-    
-    local_fidelity = accuracy_score(results_df["y_blackbox_original_LOCAL"], results_df["y_surrogate_reconstructed_LOCAL"])
-    global_fidelity = accuracy_score(results_df["y_blackbox_original_GLOBAL"], results_df["y_surrogate_original_GLOBAL"])
-    reconstruction_fidelity = accuracy_score(results_df["y_blackbox_original_LOCAL"], results_df["y_blackbox_reconstructed_LOCAL"])
+"""
+def calculate_stability(agnostic_explainers, X_exp_test, encoder, n_neighbors = 4):
+    X_exp_test_latent = encoder.predict(X_exp_test)
+    nbrs = NearestNeighbors(n_neighbors=n_neighbors, algorithm='ball_tree').fit(X_exp_test_latent)
+    distances, indices = nbrs.kneighbors(X_exp_test_latent)
+    stabilities = []
+    for i, agnostic in enumerate(agnostic_explainers):
+        neighborhood_distances = np.array(distances[i][1:]) # the first value is the distance from the point itself (0)
+        neighborhood_indices = indices[i][1:]
+        instance_exemplars = agnostic.rules_dataframes["rule"]["df"]
+        neighborhood_average_exemplar_distances = []
+        for index in neighborhood_indices:
+            neighbor_exemplars = agnostic_explainers[index].rules_dataframes["rule"]["df"]
+            neighbor_average_exemplar_distance = cdist(instance_exemplars, neighbor_exemplars).mean()
+            neighborhood_average_exemplar_distances.append(neighbor_average_exemplar_distance)
+        neighborhood_average_exemplar_distances = np.array(neighborhood_average_exemplar_distances)
+        stability = (neighborhood_average_exemplar_distances/neighborhood_distances).max()
+        stabilities.append(stability)
+    return np.array(stabilities)
+"""
 
+"""
+def calculate_stability(agnostic_explainers, X_exp_test, encoder, n_neighbors = 4):
+    #X_exp_test_latent = encoder.predict(X_exp_test)
+    nbrs = NearestNeighbors(n_neighbors=n_neighbors, algorithm='ball_tree').fit(X_exp_test)
+    distances, indices = nbrs.kneighbors(X_exp_test)
+    stabilities = []
+    for i, agnostic in enumerate(agnostic_explainers):
+        neighborhood_distances = np.array(distances[i][1:]) # the first value is the distance from the point itself (0)
+        neighborhood_indices = indices[i][1:]
+        instance_exemplars = agnostic.rules_dataframes["rule"]["df"]
+        neighborhood_average_exemplar_distances = []
+        for index in neighborhood_indices:
+            neighbor_exemplars = agnostic_explainers[index].rules_dataframes["rule"]["df"]
+            neighbor_average_exemplar_distance = cdist(instance_exemplars, neighbor_exemplars).mean()
+            neighborhood_average_exemplar_distances.append(neighbor_average_exemplar_distance)
+        neighborhood_average_exemplar_distances = np.array(neighborhood_average_exemplar_distances)
+        stability = (neighborhood_average_exemplar_distances/neighborhood_distances).max()
+        stabilities.append(stability)
+    return np.array(stabilities)
+"""
+"""           
+def calculate_shapelet_stability(agnostic_explainers, X_exp_test, n_neighbors = 4, quantile = 0.9):
+    X_exp_test = X_exp_test[:,:,0]
+    encoder = agnostic_explainers[0].encoder
+    decoder = agnostic_explainers[0].decoder
+    nbrs = NearestNeighbors(n_neighbors=len(X_exp_test), algorithm='ball_tree').fit(X_exp_test)
+    distances, indices = nbrs.kneighbors(X_exp_test)
+    stabilities = []
+    for i, agnostic in enumerate(agnostic_explainers):
+        ts = decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)).ravel()
+        all_neighborhood_indices = indices[i][1:]
+        nearest_neighbors_indices = indices[i][1:n_neighbors]
+        
+        far_neighbor_index = all_neighborhood_indices[np.quantile(range(len(X_exp_test)-1), quantile, interpolation = "lower")]
+        far_neighbor = decoder.predict(encoder.predict(X_exp_test[far_neighbor_index].reshape(1,-1,1))).ravel()
+        
+        # SHAPELETS FOR THE INSTANCE TO EXPLAIN
+        shapelets = extract_used_shapelets(agnostic.shapelet_explainer, ts)
+        
+        
+        # SHAPELETS FOR THE FAR NEIGHBOR
+        far_shapelets = extract_used_shapelets(agnostic_explainers[far_neighbor_index].shapelet_explainer, far_neighbor)
+        
+        
+        far_sim = shapelet_stability_measure(shapelets, far_shapelets)
+        print()
+        print("far:",far_sim)
+        
+        stability = []
+        
+        # SHAPELETS FOR THE K-NEAREST NEIGHBORS
+        for index in nearest_neighbors_indices:
+            neighbor = decoder.predict(encoder.predict(X_exp_test[index].reshape(1,-1,1))).ravel()
+            near_shapelets = extract_used_shapelets(agnostic_explainers[index].shapelet_explainer, neighbor)
+            sim = shapelet_stability_measure(shapelets, near_shapelets)
+            print("near:",sim)
+            stability.append(sim)
+        stability = np.array(stability)/far_sim
+        stabilities.append(np.array([stability.max(), stability.min(), stability.mean()]))
+    return np.array(stabilities)
+"""
+"""
+def calculate_shapelet_stability(agnostic_explainers, X_exp_test, n_neighbors = 6):
+    X_exp_test = X_exp_test[:,:,0]
+    encoder = agnostic_explainers[0].encoder
+    decoder = agnostic_explainers[0].decoder
+    nbrs = NearestNeighbors(n_neighbors=len(X_exp_test), algorithm='ball_tree').fit(X_exp_test)
+    distances, indices = nbrs.kneighbors(X_exp_test)
+    stabilities = []
+    for i, agnostic in enumerate(agnostic_explainers):
+        ts = decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)).ravel()
+        nearest_neighbors_indices = indices[i][1:n_neighbors]
+        
+        far_neighbor_index = nearest_neighbors_indices[-1]
+        far_neighbor = decoder.predict(encoder.predict(X_exp_test[far_neighbor_index].reshape(1,-1,1))).ravel()
+        
+        nearest_neighbor_index = nearest_neighbors_indices[0]
+        nearest_neighbor = decoder.predict(encoder.predict(X_exp_test[nearest_neighbor_index].reshape(1,-1,1))).ravel()
+        
+        # SHAPELETS FOR THE INSTANCE TO EXPLAIN
+        shapelets = extract_used_shapelets(agnostic.shapelet_explainer, ts)
+        
+        
+        # SHAPELETS FOR THE FAR NEIGHBOR
+        far_shapelets = extract_used_shapelets(agnostic_explainers[far_neighbor_index].shapelet_explainer, far_neighbor)
+        
+        
+        far_dist = shapelet_stability_measure(shapelets, far_shapelets)
+        print()
+        print("far:",far_dist)
+        
+        # SHAPELETS FOR THE K-NEAREST NEIGHBORS
+        near_shapelets = extract_used_shapelets(agnostic_explainers[nearest_neighbor_index].shapelet_explainer, nearest_neighbor)
+        dist = shapelet_stability_measure(shapelets, near_shapelets)
+        print("near:",dist)
+        stability = dist/far_dist
+        stabilities.append(stability)
+    return np.array(stabilities)
+"""
+
+def calculate_shapelet_stability(agnostic_explainers, X_exp_test, n_neighbors = 6):
+    X_exp_test = X_exp_test[:,:,0]
+    encoder = agnostic_explainers[0].encoder
+    decoder = agnostic_explainers[0].decoder
+    nbrs = NearestNeighbors(n_neighbors=len(X_exp_test), algorithm='ball_tree').fit(X_exp_test)
+    distances, indices = nbrs.kneighbors(X_exp_test)
+    stabilities = []
+    for i, agnostic in enumerate(agnostic_explainers):
+        ts = decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)).ravel()
+        nearest_neighbors_indices = indices[i][1:n_neighbors]
+        
+        far_neighbor_index = nearest_neighbors_indices[-1]
+        far_neighbor = decoder.predict(encoder.predict(X_exp_test[far_neighbor_index].reshape(1,-1,1))).ravel()
+        
+        nearest_neighbor_index = nearest_neighbors_indices[0]
+        nearest_neighbor = decoder.predict(encoder.predict(X_exp_test[nearest_neighbor_index].reshape(1,-1,1))).ravel()
+        
+        # SHAPELETS FOR THE INSTANCE TO EXPLAIN
+        shapelets = extract_used_shapelets(agnostic.shapelet_explainer, ts)
+        
+        
+        # SHAPELETS FOR THE FAR NEIGHBOR
+        far_shapelets = extract_used_shapelets(agnostic_explainers[far_neighbor_index].shapelet_explainer, far_neighbor)
+        
+        
+        far_sim = shapelet_stability_measure(shapelets, far_shapelets)
+        #print()
+        #print("far:",far_sim)
+        
+        # SHAPELETS FOR THE K-NEAREST NEIGHBORS
+        near_shapelets = extract_used_shapelets(agnostic_explainers[nearest_neighbor_index].shapelet_explainer, nearest_neighbor)
+        sim = shapelet_stability_measure(shapelets, near_shapelets)
+        #print("near:",sim)
+        stability = far_sim/sim
+        stabilities.append(stability)
+    return np.array(stabilities)  
+
+def calculate_shapelet_multi_stability(agnostic_explainers, X_exp_test):
+    X_exp_test = X_exp_test[:,:,0]
+    encoder = agnostic_explainers[0].encoder
+    decoder = agnostic_explainers[0].decoder
+    nbrs = NearestNeighbors(n_neighbors=len(X_exp_test), algorithm='ball_tree').fit(X_exp_test)
+    distances, indices = nbrs.kneighbors(X_exp_test)
+    stabilities = []
+    for i, agnostic in enumerate(agnostic_explainers):
+        ts = decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)).ravel()
+        neighbors_indices = indices[i][1:len(X_exp_test)]
+        
+        far_neighbor_indices = neighbors_indices[list(range(5,len(X_exp_test)-1,5))]
+        #far_neighbor = decoder.predict(encoder.predict(X_exp_test[far_neighbor_index].reshape(1,-1,1))).ravel()
+        
+        nearest_neighbor_index = neighbors_indices[0]
+        nearest_neighbor = decoder.predict(encoder.predict(X_exp_test[nearest_neighbor_index].reshape(1,-1,1))).ravel()
+        
+        # SHAPELETS FOR THE INSTANCE TO EXPLAIN
+        shapelets = extract_used_shapelets(agnostic.shapelet_explainer, ts)
+        far_sims = []
+        print()
+        # SHAPELETS FOR THE FAR NEIGHBOR
+        for far_neighbor_index in far_neighbor_indices:
+            far_neighbor = decoder.predict(encoder.predict(X_exp_test[far_neighbor_index].reshape(1,-1,1))).ravel()
+            far_shapelets = extract_used_shapelets(agnostic_explainers[far_neighbor_index].shapelet_explainer, far_neighbor)
+            far_sim = shapelet_stability_measure(shapelets, far_shapelets)
+            far_sims.append(far_sim)
+            
+            print("far:",far_sim)
+        
+        # SHAPELETS FOR THE K-NEAREST NEIGHBORS
+        near_shapelets = extract_used_shapelets(agnostic_explainers[nearest_neighbor_index].shapelet_explainer, nearest_neighbor)
+        sim = shapelet_stability_measure(shapelets, near_shapelets)
+        print("near:",sim)
+        stability = far_sims/sim
+        stabilities.append(stability)
+    return np.array(stabilities)          
+        
+        
+        
+        
+        
     
+
+def print_report(results_df, only_global = False):
+    global_classification_report = classification_report(results_df["y_blackbox_original_GLOBAL"], results_df["y_surrogate_original_GLOBAL"])
+    global_fidelity = accuracy_score(results_df["y_blackbox_original_GLOBAL"], results_df["y_surrogate_original_GLOBAL"])
+    local_fidelity = np.nan
+    reconstruction_fidelity = np.nan
+    if not only_global:
+        local_classification_report = classification_report(results_df["y_blackbox_original_LOCAL"], results_df["y_surrogate_reconstructed_LOCAL"])
+        reconstrution_classification_report = classification_report(results_df["y_blackbox_original_LOCAL"], results_df["y_blackbox_reconstructed_LOCAL"])
+        
+        local_fidelity = accuracy_score(results_df["y_blackbox_original_LOCAL"], results_df["y_surrogate_reconstructed_LOCAL"])
+        reconstruction_fidelity = accuracy_score(results_df["y_blackbox_original_LOCAL"], results_df["y_blackbox_reconstructed_LOCAL"])
+        
+    print("reconstruction fidelity: ", reconstruction_fidelity)
     print("local fidelity: ", local_fidelity)
     print("global fidelity: ", global_fidelity)
-    print("reconstruction fidelity: ", reconstruction_fidelity)
+    
+    return({"fid_g": global_fidelity,
+            "fid_l": local_fidelity
+            })
     
     
         

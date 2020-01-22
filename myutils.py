@@ -8,7 +8,7 @@ Created on Wed Nov 13 17:15:54 2019
 from sklearn.metrics import accuracy_score
 import numpy as np
 import pandas as pd
-from agnosticlocalexplainer import AgnosticLocalExplainer
+import fastdtw
 
 def reconstruction_blackbox_consistency(autoencoder, blackbox, dataset, keras = True, discriminative = False):
     if keras:
@@ -36,6 +36,9 @@ def df_to_sktime(df):
     for series in df:
         df_dict["dim_0"].append(pd.Series(series))
     return pd.DataFrame(df_dict)
+
+def dtw_distance(a, b):
+    return fastdtw.fastdtw(a, b)[0]
     
 class BlackboxPredictWrapper(object):
     def __init__(self, blackbox, input_dimensions):
@@ -65,8 +68,8 @@ class BlackboxPredictWrapper(object):
         else: prediction = self.blackbox.predict(dataset)
         return prediction
     
-
-
-
-        
+def stabilities_df(stabilities, dataset_length):
+    rows = list(range(5,dataset_length-1,5))
+    df = pd.DataFrame(stabilities.mean(axis=0), columns = ["mean", "max", "min"], index = rows)
+    return df
     

@@ -20,7 +20,7 @@ import sys
 from joblib import load, dump
 import warnings
 import keras
-
+from myutils import dtw_distance
 
 def save_shapelet_model(explainer, file_path):
     explainer.shapelet_generator.locator_model_.save(file_path + "_locator.h5")
@@ -265,7 +265,155 @@ def plot_series_shapelet_explanation_old(shapelet_explainer,
                       )
         #fig.show()
         plt.show()
+
+def extract_used_shapelets(shapelet_explainer, ts):
+    sample_id = 0
+    dataset = ts.reshape(1,-1)
+    dataset_transformed = shapelet_explainer.shapelet_generator.transform(dataset)
+    dataset_transformed_binarized = 1*(dataset_transformed < (np.quantile(dataset_transformed,shapelet_explainer.best_quantile)))
+    feature = shapelet_explainer.surrogate.tree_.feature
+    threshold = shapelet_explainer.surrogate.tree_.threshold
+    leave_id = shapelet_explainer.surrogate.apply(dataset_transformed_binarized)
+    node_indicator = shapelet_explainer.surrogate.decision_path(dataset_transformed_binarized)
+    node_index = node_indicator.indices[node_indicator.indptr[sample_id]:node_indicator.indptr[sample_id + 1]]
+    shapelet_sets = {"contained" : [], "not-contained": []}
+    for node_id in node_index:
+        if leave_id[sample_id] == node_id:
+            continue
+        if (dataset_transformed_binarized[sample_id, feature[node_id]] <= threshold[node_id]):
+            threshold_sign = "not-contained"
+        else:
+            threshold_sign = "contained"
+        shp = shapelet_explainer.shapelet_generator.shapelets_[feature[node_id]].ravel()
+        shapelet_sets[threshold_sign].append(shp)
+    return shapelet_sets
+"""
+def shapelet_stability_measure(shp_a, shp_b):
+    contained_dist = []
+    not_contained_dist = []
+    
+    if (len(shp_a["contained"]) == 0 and len(shp_b["contained"]) == 0):
+        contained_dist.append(1)
+    else:
+        if (len(shp_a["contained"]) > 0 and len(shp_b["contained"]) == 0) or (len(shp_a["contained"]) == 0 and len(shp_b["contained"]) > 0):
+            contained_dist.append(0)
+        else:
+            for shapelet_a in shp_a["contained"]:
+                for shapelet_b in shp_b["contained"]:
+                    dist = dtw_distance(shapelet_a, shapelet_b)
+                    sim = 1 / (1 + dist)
+                    contained_dist.append(sim)
+
+    if (len(shp_a["not-contained"]) == 0 and len(shp_b["not-contained"]) == 0):
+        not_contained_dist.append(1)
+    else:
+        if (len(shp_a["not-contained"]) > 0 and len(shp_b["not-contained"]) == 0) or (len(shp_a["not-contained"]) == 0 and len(shp_b["not-contained"]) > 0):
+            not_contained_dist.append(0)
+        else:
+            for shapelet_a in shp_a["not-contained"]:
+                for shapelet_b in shp_b["not-contained"]:
+                    dist = dtw_distance(shapelet_a, shapelet_b)
+                    sim = 1 / (1 + dist)
+                    not_contained_dist.append(sim)
+    contained_dist = np.array(contained_dist)
+    not_contained_dist = np.array(not_contained_dist)
+    
+    return np.array([contained_dist.mean(), not_contained_dist.mean()]).mean()
+"""
+"""
+def shapelet_stability_measure(shp_a, shp_b):
+    contained_dist = []
+    not_contained_dist = []
+    
+    if (len(shp_a["contained"]) == 0 and len(shp_b["contained"]) == 0):
+        contained_dist.append(0)
+    else:
+        if (len(shp_a["contained"]) > 0 and len(shp_b["contained"]) == 0) or (len(shp_a["contained"]) == 0 and len(shp_b["contained"]) > 0):
+            contained_dist.append(np.inf)
+        else:
+            for shapelet_a in shp_a["contained"]:
+                for shapelet_b in shp_b["contained"]:
+                    dist = dtw_distance(shapelet_a, shapelet_b)
+                    contained_dist.append(dist)
+
+    if (len(shp_a["not-contained"]) == 0 and len(shp_b["not-contained"]) == 0):
+        not_contained_dist.append(0)
+    else:
+        if (len(shp_a["not-contained"]) > 0 and len(shp_b["not-contained"]) == 0) or (len(shp_a["not-contained"]) == 0 and len(shp_b["not-contained"]) > 0):
+            not_contained_dist.append(np.inf)
+        else:
+            for shapelet_a in shp_a["not-contained"]:
+                for shapelet_b in shp_b["not-contained"]:
+                    dist = dtw_distance(shapelet_a, shapelet_b)
+                    not_contained_dist.append(dist)
+    contained_dist = np.array(contained_dist).mean()
+    not_contained_dist = np.array(not_contained_dist).mean()
+    dists = np.array([contained_dist, not_contained_dist])
+    
+    return np.array([dists.mean(), dists.max(), dists.min()])
+"""
+
+def shapelet_stability_measure(shp_a, shp_b):
+    contained_dist = []
+    not_contained_dist = []
+    
+    
+    
+    if (len(shp_a["contained"]) == 0 and len(shp_b["contained"]) == 0):
+        contained_dist.append(1)
+    else:
+        if (len(shp_a["contained"]) > 0 and len(shp_b["contained"]) == 0) or (len(shp_a["contained"]) == 0 and len(shp_b["contained"]) > 0):
+            contained_dist.append(0)
+        else:
+            for shapelet_a in shp_a["contained"]:
+                for shapelet_b in shp_b["contained"]:
+                    dist = dtw_distance(shapelet_a, shapelet_b)
+                    sim = 1 / (1 + dist)
+                    contained_dist.append(sim)
+
+    if (len(shp_a["not-contained"]) == 0 and len(shp_b["not-contained"]) == 0):
+        not_contained_dist.append(1)
+    else:
+        if (len(shp_a["not-contained"]) > 0 and len(shp_b["not-contained"]) == 0) or (len(shp_a["not-contained"]) == 0 and len(shp_b["not-contained"]) > 0):
+            not_contained_dist.append(0)
+        else:
+            for shapelet_a in shp_a["not-contained"]:
+                for shapelet_b in shp_b["not-contained"]:
+                    dist = dtw_distance(shapelet_a, shapelet_b)
+                    sim = 1 / (1 + dist)
+                    not_contained_dist.append(sim)
+                    
+    contained_dist = np.array(contained_dist).mean()
+    not_contained_dist = np.array(not_contained_dist).mean()
+    dists = np.array([contained_dist, not_contained_dist])
+    
+    return np.array([dists.mean(), dists.max(), dists.min()])
+
+"""
+def shapelet_stability_measure(shp_a, shp_b):
+    contained_dist = []
+    not_contained_dist = []
+    
+    for shapelet_a in shp_a["contained"]:
+        for shapelet_b in shp_b["contained"]:
+            dist = dtw_distance(shapelet_a, shapelet_b)
+            sim = 1 / (1 + dist)
+            contained_dist.append(sim)
+
+    for shapelet_a in shp_a["not-contained"]:
+        for shapelet_b in shp_b["not-contained"]:
+            dist = dtw_distance(shapelet_a, shapelet_b)
+            sim = 1 / (1 + dist)
+            not_contained_dist.append(sim)
+    contained_dist = np.array(contained_dist)
+    not_contained_dist = np.array(not_contained_dist)
+    
+    print(np.array([contained_dist.mean(), not_contained_dist.mean()]).mean())
+    
+    return contained_dist, not_contained_dist
+"""
         
+
 def plot_series_shapelet_explanation(shapelet_explainer,
                                          ts,
                                          ts_label,
@@ -439,6 +587,8 @@ def plot_series_shapelet_explanation(shapelet_explainer,
     by_label = dict(zip(labels, handles))
     plt.legend(by_label.values(), by_label.keys())
     plt.show()
+    
+
     
     
 
