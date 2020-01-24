@@ -21,7 +21,6 @@ from joblib import load, dump
 import warnings
 import keras
 from myutils import dtw_distance
-from sklearn.decomposition import PCA
 
 def save_shapelet_model(explainer, file_path):
     explainer.shapelet_generator.locator_model_.save(file_path + "_locator.h5")
@@ -588,10 +587,6 @@ def plot_series_shapelet_explanation(shapelet_explainer,
     by_label = dict(zip(labels, handles))
     plt.legend(by_label.values(), by_label.keys())
     plt.show()
-    
-    
-
-    
     
 
     

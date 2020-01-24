@@ -9,7 +9,6 @@ from lore.datamanager import prepare_dataset
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
 import ruptures as rpt
 import keras
 import shap
@@ -18,11 +17,10 @@ import matplotlib
 import sys
 from sklearn.decomposition import PCA #Principal Component Analysis
 from scipy.stats import norm
-from agnosticglobalexplainer import AgnosticGlobalExplainer, save_shapelet_model, load_shapelet_model#, plot_series_shapelet_explanation
+from agnosticglobalexplainer import AgnosticGlobalExplainer, save_shapelet_model, load_shapelet_model, plot_series_shapelet_explanation
 from sklearn.metrics import accuracy_score, pairwise_distances
 from joblib import load, dump
 import copy
-import warnings
 
 
 
@@ -41,480 +39,6 @@ def save_reload_agnostic_local_explainer(explainer, file_path):
     explainer = load_agnostic_local_explainer(file_path)
     return explainer
    
-def plot_rules_dataframes(agnostic, figsize=(10,4), fontsize = 20):
-        #colors = ["b", "g", "c", "m", "k", "orange", "olive", "pink"]
-        alpha = 0.1
-        fontsize = 20
-        for rule in agnostic.rules_dataframes.keys():
-            plt.figure(figsize=figsize)
-            #plt.suptitle(rule + " - " + str(self.rules_dataframes[rule]["df"].shape[0]) +  " time series") 
-            label = agnostic.rules_dataframes[rule]["Rule_obj"].cons
-            if rule == "rule":
-                plt.title(r"$b(\tilde{Z}_=^*)$" + " = " + agnostic.labels[label] if agnostic.labels else str(label), fontsize = fontsize)
-                for ts in agnostic.rules_dataframes[rule]["df"]:
-                    plt.plot(ts, c = "#2ca02c", alpha = alpha)
-            else:
-                plt.title(r"$b(\tilde{Z}_\neq ^*)$" + " = " + agnostic.labels[label] if agnostic.labels else str(label), fontsize = fontsize)
-                for ts in agnostic.rules_dataframes[rule]["df"]:
-                    plt.plot(ts, c = "#d62728", alpha = alpha)
-            plt.ylabel("value", fontsize=fontsize)
-            plt.xlabel("timesteps", fontsize=fontsize)
-            plt.tick_params(axis='both', which='major', labelsize=fontsize)
-            plt.plot(agnostic.instance_to_explain, c = "mediumblue",#"#17becf",#= "#1f77b4", 
-                     linestyle='-', lw=2, alpha = 1)
-            #plt.plot(self.rules_dataframes[rule]["df"].mean(axis = 0), c = "black", linestyle='--')
-            plt.show()
-        """
-        plt.figure(figsize=figsize)
-        
-        
-        plt.title("Rules Medoids")
-        for i, rule in enumerate(agnostic_explainer.rules_dataframes.keys()):
-            plt.plot(agnostic_explainer.rules_dataframes[rule]["df"][agnostic_explainer.rules_dataframes[rule]["medoid_idx"]], c = colors[i%len(colors)], label = rule)
-        plt.legend()
-        plt.show()
-        """
-def VAE_normal_2dgeneration(agnostic, n = 5, figsize = (10,5)):
-    fontsize = 20
-    grid_x = norm.ppf(np.linspace(0.05, 0.95, n)) 
-    grid_y = norm.ppf(np.linspace(0.05, 0.95, n)) 
-    fig, axs = plt.subplots(n, n, figsize=figsize)
-    fig.suptitle("Classes Morphing", fontsize = fontsize)
-    fig.patch.set_visible(False)
-    #colors = ["r", "g", "blue", "c", "m", "k", "orange", "olive", "pink"]
-    for i, yi in enumerate(grid_x):
-        for j, xi in enumerate(grid_y):
-            z_sample = np.array([[xi, yi]])
-            x_decoded = agnostic.decoder.predict(z_sample).ravel()
-            x_label = agnostic.blackbox_predict(x_decoded.reshape(1,-1,1))[0]
-            color = "#2ca02c" if x_label == agnostic.instance_to_explain_blackbox_class else "#d62728"
-            if x_label == agnostic.instance_to_explain_blackbox_class:
-                   label = r"$b(\tilde{Z}_=)$"# + " = " + agnostic.labels[x_label] if agnostic.labels else str(x_label)
-            else:
-                label = r"$b(\tilde{Z}_\neq)$"# + " = " + agnostic.labels[x_label] if agnostic.labels else str(x_label)
-            axs[i,j].plot(x_decoded, color = color, label = label
-               #label = "class: " + str(x_label) if not agnostic.labels else "class: " + str(agnostic.labels[x_label]) + " ({})".format(str(x_label))
-               )
-            axs[i,j].set_yticklabels([])
-            axs[i,j].set_xticklabels([])
-            axs[i,j].axis('off')
-         
-    d = dict()
-    for a in fig.get_axes():
-        if a.get_legend_handles_labels()[1][0] not in d:
-            d[a.get_legend_handles_labels()[1][0]] = a.get_legend_handles_labels()[0][0]
-            
-    labels, handles = zip(*sorted(zip(d.keys(), d.values()), key=lambda t: t[0]))
-    plt.legend(handles, labels, fontsize = fontsize)
-    
-    
-def visualize_latent_space(agnostic, neighborhood_plot = True):
-    
-    blackbox_dataset = agnostic.X_explanation.copy()
-    blackbox_labels = agnostic.blackbox_predict(blackbox_dataset)
-    dataset_latent = agnostic.X_explanation_latent
-    
-    plot_2dlatent_space(agnostic, dataset_latent, blackbox_labels, 
-                             latent_neighborhood = agnostic.Z_latent_instance_neighborhood, 
-                             latent_neighborhood_labels = agnostic.Zy_latent_instance_neighborhood_labels,
-                             instance_to_explain_latent = agnostic.instance_to_explain_latent,
-                             rules_dataframes_latent = agnostic.rules_dataframes_latent,
-                             figsize = (8, 8), #shap_plot = False, 
-                             neighborhood_plot = neighborhood_plot,
-                             rules_plot = False)
-    """
-    plot_2dlatent_space(agnostic, dataset_latent, blackbox_labels, 
-                                 latent_neighborhood = agnostic.Z_latent_instance_neighborhood, 
-                                 latent_neighborhood_labels = agnostic.Zy_latent_instance_neighborhood_labels,
-                                 instance_to_explain_latent = agnostic.instance_to_explain_latent,
-                                 rules_dataframes_latent = agnostic.rules_dataframes_latent,
-                                 figsize = (8, 8), #shap_plot = False, 
-                                 neighborhood_plot = neighborhood_plot,
-                                 rules_plot = True)
-    """
-    
-def plot_2dlatent_space(agnostic, dataset_latent, 
-                      dataset_labels, 
-                      instance_to_explain_latent,
-                      latent_neighborhood = None,
-                      latent_neighborhood_labels = None,
-                      rules_dataframes_latent = None,
-                      figsize = (6, 6), 
-                      #shap_plot = False, 
-                      neighborhood_plot = True,
-                      rules_plot = False):
-    fontsize = 20
-    fig, ax = plt.subplots(figsize=figsize)
-    #fig.suptitle("Z", fontsize = fontsize)
-    ax.set_title("Z", fontsize = fontsize)
-    """
-    colors = np.array([str(label) for label in dataset_labels])
-    exemplars = np.argwhere(dataset_labels == agnostic.instance_to_explain_blackbox_class)
-    counterexemplars = np.argwhere(dataset_labels != agnostic.instance_to_explain_blackbox_class)
-    colors[exemplars] = "green"
-    colors[counterexemplars] = "red"
-    
-    # plots dataset latent points
-    scatter = ax.scatter(dataset_latent[:, 0], dataset_latent[:, 1], c = colors)
-    ax.legend(*scatter.legend_elements(), loc="lower left", title="Classes")
-    """
-    
-    # plots generated neighborhood points
-    exemplars = np.argwhere(latent_neighborhood_labels == agnostic.instance_to_explain_blackbox_class)
-    counterexemplars = np.argwhere(latent_neighborhood_labels != agnostic.instance_to_explain_blackbox_class)
-    
-    ax.scatter(latent_neighborhood[:,0][exemplars], 
-               latent_neighborhood[:,1][exemplars], 
-                   c = "#2ca02c", 
-                   alpha = 0.5, 
-                   label = r"$Z_=$"
-                   #marker = "."
-                   )
-    ax.scatter(latent_neighborhood[:,0][counterexemplars], 
-               latent_neighborhood[:,1][counterexemplars], 
-                   c = "#d62728", 
-                   alpha = 0.5, 
-                   label = r"$Z_\neq$"
-                   #marker = "."
-                   )
-    #ax.legend(*scatter.legend_elements(), loc="lower left")
-    
-    
-
-    # marks the instance to explain with an X
-    ax.scatter(instance_to_explain_latent[0], 
-               instance_to_explain_latent[1], label = r"z",
-               c = "mediumblue", marker = "X", 
-               s = 200)    
-    ax.legend(fontsize = fontsize)
-    plt.tick_params(axis='both', which='major', labelsize=fontsize)
-    plt.show()
-    
-    
-    fig, ax = plt.subplots(figsize=figsize)
-    #fig.suptitle("Z", fontsize = fontsize)
-    ax.set_title(r"$Z^*$", fontsize = fontsize)
-    # marks with a black circle the points covered by a rule or a counterfactual
-    check = 0
-    for i, rule in enumerate(rules_dataframes_latent.keys()):
-        
-        if rule != "rule":
-            check += 1
-        ax.scatter(rules_dataframes_latent[rule]["df"][:,0], 
-                   rules_dataframes_latent[rule]["df"][:,1], 
-                   #label = r"$Z^*$" if i == 0 else None,
-                   c = "#2ca02c" if rule == "rule" else "#d62728", 
-                   alpha = 0.5, 
-                   label = r"$Z_=^*$" if rule == "rule" else r"$Z_\neq ^*$" if check == 1 else None
-                   #marker = "."
-                   )
-     # marks the instance to explain with an X
-    ax.scatter(instance_to_explain_latent[0], 
-               instance_to_explain_latent[1], label = r"z",
-               c = "mediumblue", marker = "X", edgecolors = "black",
-               s = 200)    
-    ax.legend(fontsize = fontsize)
-    plt.tick_params(axis='both', which='major', labelsize=fontsize)
-    plt.show()
-                       
-    
-    
-    # plots shap generated points (it's a mess because the autoencoder is not trained to encode them)
-    """
-    if shap_plot:
-        for rule_index, data in enumerate(shap_output_data):
-            shap_y = np.argmax(blackbox.predict(data.reshape(data.shape[0], data.shape[1], 1)), axis = 1)
-            shap_lat = encoder.predict(data.reshape(data.shape[0],data.shape[1], 1))
-            plt.scatter(shap_lat[:,0], shap_lat[:,1], c = shap_y, alpha = 0.2, marker = "*", cmap = "Set1")
-    """
-    """instance_to_explain_latent = dataset_latent[self.index_to_explain].ravel()"""
-    
-def plot_shapelet_space(agnostic, figsize=(8,8)):
-    shapelet_explainer = agnostic.shapelet_explainer
-    pca_2d = PCA(n_components=2)
-    pca_2d.fit(shapelet_explainer.fitted_transformed_dataset)
-    dataset_latent_2dconversion = pca_2d.transform(shapelet_explainer.fitted_transformed_dataset)
-    dataset_latent_2dconversion_labels = agnostic.y_train_shapelet
-    instance_to_explain_shapelet = agnostic.shapelet_explainer.shapelet_generator.transform(agnostic.decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)))
-    instance_to_explain_2d = pca_2d.transform(instance_to_explain_shapelet).ravel()
-    
-    fontsize = 20
-    fig, ax = plt.subplots(figsize=figsize)
-    #fig.suptitle("Z", fontsize = fontsize)
-    ax.set_title(r"$\Xi$", fontsize = fontsize)
-    
-    # plots generated neighborhood points
-    exemplars = np.argwhere(dataset_latent_2dconversion_labels == agnostic.instance_to_explain_blackbox_class)
-    counterexemplars = np.argwhere(dataset_latent_2dconversion_labels != agnostic.instance_to_explain_blackbox_class)
-    
-    ax.scatter(dataset_latent_2dconversion[:,0][exemplars], 
-               dataset_latent_2dconversion[:,1][exemplars], 
-                   c = "#2ca02c", 
-                   alpha = 0.5, 
-                   label = r"$\Xi _=$"
-                   #marker = "."
-                   )
-    ax.scatter(dataset_latent_2dconversion[:,0][counterexemplars], 
-               dataset_latent_2dconversion[:,1][counterexemplars], 
-                   c = "#d62728", 
-                   alpha = 0.5, 
-                   label = r"$\Xi_\neq$"
-                   #marker = "."
-                   )
-    #ax.legend(*scatter.legend_elements(), loc="lower left")
-    
-    
-
-    # marks the instance to explain with an X
-    ax.scatter(instance_to_explain_2d[0], 
-               instance_to_explain_2d[1], label = r"$\xi$",
-               c = "mediumblue", marker = "X", edgecolors = "black",
-               s = 200)    
-    ax.legend(fontsize = fontsize)
-    plt.tick_params(axis='both', which='major', labelsize=fontsize)
-    plt.show()
-    
-def plot_binary_shapelet_space(agnostic, figsize=(8,8)):
-    def rand_jitter(arr):
-        stdev = .01*(max(arr)-min(arr))
-        return arr + np.random.randn(len(arr)) * stdev
-    shapelet_explainer = agnostic.shapelet_explainer
-    pca_2d = PCA(n_components=2)
-    pca_2d.fit(shapelet_explainer.fitted_transformed_binarized_dataset)
-    dataset_latent_2dconversion = pca_2d.transform(shapelet_explainer.fitted_transformed_binarized_dataset)
-    dataset_latent_2dconversion_labels = agnostic.y_train_shapelet
-    instance_to_explain_shapelet = agnostic.shapelet_explainer.shapelet_generator.transform(agnostic.decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)))
-    instance_to_explain_shapelet_binarized = 1*(instance_to_explain_shapelet < (np.quantile(agnostic.shapelet_explainer.fitted_transformed_dataset,agnostic.shapelet_explainer.best_quantile)))
-    instance_to_explain_2d = pca_2d.transform(instance_to_explain_shapelet_binarized).ravel()
-    
-    fontsize = 20
-    fig, ax = plt.subplots(figsize=figsize)
-    #fig.suptitle("Z", fontsize = fontsize)
-    ax.set_title(r"$\Xi$", fontsize = fontsize)
-    
-    # plots generated neighborhood points
-    exemplars = np.argwhere(dataset_latent_2dconversion_labels == agnostic.instance_to_explain_blackbox_class)
-    counterexemplars = np.argwhere(dataset_latent_2dconversion_labels != agnostic.instance_to_explain_blackbox_class)
-    ax.scatter(rand_jitter(dataset_latent_2dconversion[:,0][counterexemplars]), 
-               rand_jitter(dataset_latent_2dconversion[:,1][counterexemplars]), 
-                   c = "#d62728", 
-                   alpha = 0.01, 
-                   label = r"$\Xi_\neq$"
-                   #marker = "."
-                   )
-    ax.scatter(rand_jitter(dataset_latent_2dconversion[:,0][exemplars]), 
-               rand_jitter(dataset_latent_2dconversion[:,1][exemplars]), 
-                   c = "#2ca02c", 
-                   alpha = 0.01, 
-                   label = r"$\Xi _=$"
-                   #marker = "."
-                   )
-    
-    #ax.legend(*scatter.legend_elements(), loc="lower left")
-    
-    
-
-    # marks the instance to explain with an X
-    ax.scatter(instance_to_explain_2d[0], 
-               instance_to_explain_2d[1], label = r"$\xi$",
-               c = "mediumblue", marker = "X", 
-               s = 200)    
-    ax.legend(fontsize = fontsize)
-    plt.tick_params(axis='both', which='major', labelsize=fontsize)
-    plt.show()
-    
-def plot_binary_heatmap(agnostic, figsize = (8,8)):
-    fontsize = 20
-    fig, ax = plt.subplots()
-    sorted_by_class_idxs = agnostic.y_train_shapelet.argsort()
-    sorted_dataset = agnostic.shapelet_explainer.fitted_transformed_binarized_dataset[sorted_by_class_idxs]
-    cmap = ListedColormap(['white', 'gray'])
-    plt.ylabel("shapelets", fontsize=fontsize)
-    plt.xlabel("time series", fontsize=fontsize)
-    plt.tick_params(axis='both', which='major', labelsize=fontsize)
-    ax.matshow(sorted_dataset.T,interpolation=None, aspect='auto', cmap=cmap)
-    
-def plot_series_shapelet_explanation(agnostic,
-                                         mapper = None,
-                                         figsize = (20,3),
-                                         color_norm_type = "normal",
-                                         vmin = 0,
-                                         vmax = 1,
-                                         gamma = 2
-                                        ):
-    fontsize = 20
-    shapelet_explainer = agnostic.shapelet_explainer
-    ts = agnostic.decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)).ravel()
-    ts_label = agnostic.instance_to_explain_blackbox_class
-    sample_id = 0
-    dataset = ts.reshape(1,-1)
-    dataset_labels = ts_label
-    #print("\n",prediction)
-    dataset_labels = dataset_labels.ravel()
-    dataset_transformed = shapelet_explainer.shapelet_generator.transform(dataset)
-    dataset_transformed_binarized = 1*(dataset_transformed < (np.quantile(dataset_transformed,shapelet_explainer.best_quantile)))
-    dataset_predicted_labels = shapelet_explainer.predict(dataset)
-    predicted_locations = shapelet_explainer.shapelet_generator.locate(dataset)
-    feature = shapelet_explainer.surrogate.tree_.feature
-    threshold = shapelet_explainer.surrogate.tree_.threshold
-    leave_id = shapelet_explainer.surrogate.apply(dataset_transformed_binarized)
-    node_indicator = shapelet_explainer.surrogate.decision_path(dataset_transformed_binarized)
-    node_index = node_indicator.indices[node_indicator.indptr[sample_id]:node_indicator.indptr[sample_id + 1]]
-    shapelet_dict = {"shapelet_idxs": [],
-                     "threshold_sign": [],
-                     "distance": [],
-                     "print_out": []
-                    }
-    
-    print('TREE PATH') 
-    print('sample predicted class: ', dataset_predicted_labels[sample_id] if not shapelet_explainer.labels else shapelet_explainer.labels[dataset_predicted_labels[sample_id]])
-    print('sample real class: ', dataset_labels[sample_id] if not shapelet_explainer.labels else shapelet_explainer.labels[dataset_labels[sample_id]])
-    for node_id in node_index:
-        if leave_id[sample_id] == node_id:
-            continue
-
-        if (dataset_transformed_binarized[sample_id, feature[node_id]] <= threshold[node_id]):
-            threshold_sign = "not-contained"
-        else:
-            threshold_sign = "contained"
-        
-        shapelet_dict["shapelet_idxs"].append(feature[node_id])
-        shapelet_dict["threshold_sign"].append(threshold_sign)
-        shapelet_dict["distance"].append(dataset_transformed[sample_id, feature[node_id]])
-        print_out = ("decision id node %s : (shapelet n. %s %s)"
-              % (node_id, feature[node_id],threshold_sign,))
-        shapelet_dict["print_out"].append(print_out)
-        print(print_out)
-    #print(shapelet_dict["distance"])
-    print()
-    print("VERBOSE EXPLANATION")
-    print("If", end = " ")
-    for i, idx_shp in enumerate(shapelet_dict["shapelet_idxs"]):
-        print("shapelet n.", shapelet_dict["shapelet_idxs"][i], "is", shapelet_dict["threshold_sign"][i], end = "")
-        if i != len(shapelet_dict["shapelet_idxs"]) - 1:
-            print(", and", end = " ")
-        else: print(",", end = " ")
-    print("then the class is", dataset_predicted_labels[sample_id] if not shapelet_explainer.labels else shapelet_explainer.labels[dataset_predicted_labels[sample_id]])
-    
-     
-    test_ts_id = sample_id
-    print()
-    print("COMPLETE EXPLANATION")
-    print("If", end = " ")
-    for i, idx_shp in enumerate(shapelet_dict["shapelet_idxs"]):
-        plt.figure(figsize=figsize)#figsize = (figsize[0]/3,figsize[1]/3)
-        plt.xlim((0, len(dataset.ravel())-1))
-        plt.plot(dataset.T, c = "gray", alpha = 0)
-        #plt.axis('equal')
-        print("shapelet n.", shapelet_dict["shapelet_idxs"][i], "is", shapelet_dict["threshold_sign"][i], end = "")
-        shp = shapelet_explainer.shapelet_generator.shapelets_[idx_shp].ravel()
-        
-        
-        plt.plot(shp, 
-                 c = "#2ca02c" if shapelet_dict["threshold_sign"][i] == "contained" else "#d62728",
-                 linewidth=3
-                     )
-        
-        
-        plt.axis('off')
-        plt.show()
-        if i != len(shapelet_dict["shapelet_idxs"]) - 1:
-            print("and", end = " ")
-        else: print("", end = "")
-    print("then the class is", dataset_predicted_labels[sample_id] if not shapelet_explainer.labels else shapelet_explainer.labels[dataset_predicted_labels[sample_id]])
-    
-    similarity_matrix = []
-    threshold_matrix = []
-    for i, idx_shp in enumerate(shapelet_dict["shapelet_idxs"]):
-        shp = shapelet_explainer.shapelet_generator.shapelets_[idx_shp]
-        threshold_sign = shapelet_dict["threshold_sign"][i]
-        distance = shapelet_dict["distance"][i]
-        t0 = predicted_locations[test_ts_id, idx_shp]
-        
-        similarity_array = np.full(len(ts), np.NaN)
-        similarity_array[t0:t0 + len(shp)] = 1/(1+distance)
-        similarity_matrix.append(similarity_array)
-        
-        threshold_array = np.full(len(ts), np.NaN)
-        if threshold_sign == "contained":
-            threshold_array[t0:t0 + len(shp)] = 0
-        threshold_matrix.append(threshold_array)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        similarity_mean = np.nanmean(similarity_matrix, axis = 0)
-    
-    threshold_matrix = np.array(threshold_matrix)
-    threshold_aggregated_array = []
-    for column_idx in range(threshold_matrix.shape[1]):
-        column_values = threshold_matrix[:,column_idx]
-        valid_column_values = np.unique(column_values[~np.isnan(column_values)])
-        if len(valid_column_values) == 0:
-            threshold_aggregated_array.append(1)
-        else:
-            threshold_aggregated_array.append(valid_column_values[0])
-            
-    threshold_aggregated_array = np.array(threshold_aggregated_array)
-    similarity_mean_contained = np.ma.masked_array(similarity_mean, threshold_aggregated_array != 0)
-    similarity_mean_nan = np.ma.masked_array(np.ones(len(similarity_mean)), threshold_aggregated_array != 1)
-
-    if color_norm_type == "normal":
-        norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax, clip=False)
-    elif color_norm_type == "power":
-        norm = matplotlib.colors.PowerNorm(vmin=vmin, vmax=vmax, clip=False, gamma = gamma)  
-    elif color_norm_type == "log":
-        norm = matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax, clip=False)
-    
-    cmap_warm = matplotlib.colors.ListedColormap(["#2ca02c"])
-    cmap_nan = matplotlib.colors.ListedColormap(["lightgrey"])
-    
-    #cmap.set_bad(color='lightgray')
-    #mapp = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
-    #colors_list = mapp.to_rgba(norm(similarity_mean))
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.set_title("Shapelets best alignments", fontsize = fontsize)
-    dataset = agnostic.instance_to_explain.reshape(1,-1)
-    ax.plot(dataset.T, c = "mediumblue", alpha = 0.2, lw = 3)
-    for i, idx_shp in enumerate(shapelet_dict["shapelet_idxs"]):
-        shp = shapelet_explainer.shapelet_generator.shapelets_[idx_shp]
-        threshold_sign = shapelet_dict["threshold_sign"][i]
-        distance = shapelet_dict["distance"][i]
-        t0 = predicted_locations[test_ts_id, idx_shp]
-        ax.plot(np.arange(t0, t0 + len(shp)), shp, 
-                 #linewidth=4, 
-                 linestyle = "-" if shapelet_dict["threshold_sign"][i] == "contained" else "--",
-                 alpha = 1 if shapelet_dict["threshold_sign"][i] == "contained" else 1,
-                 label = shapelet_dict["threshold_sign"][i],
-                 c = "#2ca02c" if shapelet_dict["threshold_sign"][i] == "contained" else "#d62728",
-                 lw=3
-                )
-    ax.pcolorfast((0, len(similarity_mean)-1),
-                  ax.get_ylim(),
-                  similarity_mean_contained[np.newaxis],
-                  cmap = cmap_warm, 
-                  alpha=0.2, 
-                  vmin = vmin, 
-                  vmax = vmax,
-                  norm = norm
-                  )
-    """
-    ax.pcolorfast((0, len(similarity_mean)-1),
-                  ax.get_ylim(),
-                  similarity_mean_nan[np.newaxis],
-                  cmap = cmap_nan, 
-                  alpha=1, 
-                  vmin = vmin, 
-                  vmax = vmax,
-                  norm = norm
-                  )
-    """
-    handles, labels = plt.gca().get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    plt.tick_params(axis='both', which='major', labelsize=fontsize)
-    plt.xlabel("timesteps",fontsize = fontsize)
-    plt.ylabel("values",fontsize = fontsize)
-    plt.legend(by_label.values(), by_label.keys())
-    plt.show()
-    
     
 
 class AgnosticLocalExplainer(object):
@@ -1755,8 +1279,7 @@ if __name__ == '__main__':
                             "activation":"elu", 
                             "pooling":[1,1,1,1,1,1,1,1]}
          }
-    
-    """     
+          
     params = {"input_shape": (n_timesteps,1),
           "n_blocks": 8, 
           "latent_dim": 2,
@@ -1767,12 +1290,11 @@ if __name__ == '__main__':
                             "activation":"elu", 
                             "pooling":[1,1,1,1,1,1,1,1]}
          }
-    """
 
     aut = Autoencoder(verbose = False, **params)
     encoder, decoder, autoencoder = aut.build()
-    #autoencoder.load_weights("./autoencoder_checkpoints/cbf_autoencoder_20191106_144056_best_weights_+1.0504_.hdf5")
-    autoencoder.load_weights("./autoencoder_checkpoints/cbf_autoencoder_20191106_144909_best_weights_+136.8745_.hdf5")
+    autoencoder.load_weights("./autoencoder_checkpoints/cbf_autoencoder_20191106_144056_best_weights_+1.0504_.hdf5")
+    #autoencoder.load_weights("./autoencoder_checkpoints/cbf_autoencoder_20191106_144909_best_weights_+136.8745_.hdf5")
     
     
     
@@ -1799,13 +1321,13 @@ if __name__ == '__main__':
                           neigh_type = 'geneticp', 
                           categorical_use_prob = True,
                           continuous_fun_estimation = False, 
-                          size = 1000,
+                          size = 100,
                           ocr = 0.1, 
                           multi_label=False,
                           one_vs_rest=False,
                           verbose = True,
                           filter_crules = False,
-                          ngen = 10)
+                          ngen = 1)
     print("\nExtracting Rules")
     agnostic.LOREM_tree_rules_extraction()
     agnostic.build_rules_dataframes()
@@ -1834,7 +1356,7 @@ if __name__ == '__main__':
                          latent_space = True,
                          multi_shap_explanation = False,
                          figsize = (20,3),
-                         VAE_2d = True,
+                         VAE_2d = False,
                          **params
                          )
     

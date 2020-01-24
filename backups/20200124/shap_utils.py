@@ -846,8 +846,8 @@ if __name__ == "__main__":
                    shap_values = shap_values_pbyp, 
                    figsize = (20,3))
     
-    stabilities = shap_stability(X_exp_test, blackbox, blackbox_input_dimensions, point_by_point = False, n_neighbors = 30, **params)
-    #stabilities = shap_multi_stability(X_exp_test, blackbox, blackbox_input_dimensions, point_by_point = False, **params)
+    #stabilities = shap_stability(X_exp_test, blackbox, blackbox_input_dimensions, point_by_point = False, n_neighbors = 30, **params)
+    stabilities = shap_multi_stability(X_exp_test, blackbox, blackbox_input_dimensions, point_by_point = False, **params)
     """
 
     shap_values = shap_f(X_exp_test[:,:,0], 1, blackbox, blackbox_input_dimensions)
