@@ -23,6 +23,7 @@ from sklearn.metrics import accuracy_score, pairwise_distances
 from joblib import load, dump
 import copy
 import warnings
+from tree_utils import NewTree, minimumDistance, get_root_leaf_path, get_thresholds_signs
 
 
 
@@ -45,6 +46,15 @@ def plot_rules_dataframes(agnostic, figsize=(10,4), fontsize = 20):
         #colors = ["b", "g", "c", "m", "k", "orange", "olive", "pink"]
         alpha = 0.1
         fontsize = 20
+        plt.figure(figsize=figsize)
+        label = agnostic.instance_to_explain_blackbox_class
+        plt.title(r"$b(x)$" + " = " + agnostic.labels[label] if agnostic.labels else str(label), fontsize = fontsize)
+        plt.ylabel("value", fontsize=fontsize)
+        plt.xlabel("timesteps", fontsize=fontsize)
+        plt.tick_params(axis='both', which='major', labelsize=fontsize)
+        plt.plot(agnostic.instance_to_explain, c = "royalblue",#"#17becf",#= "#1f77b4", 
+                     linestyle='-', lw=3, alpha = 1)
+        plt.show()
         for rule in agnostic.rules_dataframes.keys():
             plt.figure(figsize=figsize)
             #plt.suptitle(rule + " - " + str(self.rules_dataframes[rule]["df"].shape[0]) +  " time series") 
@@ -60,20 +70,15 @@ def plot_rules_dataframes(agnostic, figsize=(10,4), fontsize = 20):
             plt.ylabel("value", fontsize=fontsize)
             plt.xlabel("timesteps", fontsize=fontsize)
             plt.tick_params(axis='both', which='major', labelsize=fontsize)
-            plt.plot(agnostic.instance_to_explain, c = "mediumblue",#"#17becf",#= "#1f77b4", 
-                     linestyle='-', lw=2, alpha = 1)
+            plt.plot(agnostic.instance_to_explain, c = "white",#"#17becf",#= "#1f77b4", 
+                     linestyle='-', lw=6, alpha = 0.5)
+            plt.plot(agnostic.instance_to_explain, c = "royalblue",#"#17becf",#= "#1f77b4", 
+                     linestyle='-', lw=3, alpha = 1)
             #plt.plot(self.rules_dataframes[rule]["df"].mean(axis = 0), c = "black", linestyle='--')
             plt.show()
-        """
-        plt.figure(figsize=figsize)
         
         
-        plt.title("Rules Medoids")
-        for i, rule in enumerate(agnostic_explainer.rules_dataframes.keys()):
-            plt.plot(agnostic_explainer.rules_dataframes[rule]["df"][agnostic_explainer.rules_dataframes[rule]["medoid_idx"]], c = colors[i%len(colors)], label = rule)
-        plt.legend()
-        plt.show()
-        """
+        
 def VAE_normal_2dgeneration(agnostic, n = 5, figsize = (10,5)):
     fontsize = 20
     grid_x = norm.ppf(np.linspace(0.05, 0.95, n)) 
@@ -184,7 +189,7 @@ def plot_2dlatent_space(agnostic, dataset_latent,
     # marks the instance to explain with an X
     ax.scatter(instance_to_explain_latent[0], 
                instance_to_explain_latent[1], label = r"z",
-               c = "mediumblue", marker = "X", 
+               c = "mediumblue", marker = "X", edgecolors = "white",
                s = 200)    
     ax.legend(fontsize = fontsize)
     plt.tick_params(axis='both', which='major', labelsize=fontsize)
@@ -211,7 +216,7 @@ def plot_2dlatent_space(agnostic, dataset_latent,
      # marks the instance to explain with an X
     ax.scatter(instance_to_explain_latent[0], 
                instance_to_explain_latent[1], label = r"z",
-               c = "mediumblue", marker = "X", edgecolors = "black",
+               c = "mediumblue", marker = "X", edgecolors = "white",
                s = 200)    
     ax.legend(fontsize = fontsize)
     plt.tick_params(axis='both', which='major', labelsize=fontsize)
@@ -333,6 +338,121 @@ def plot_binary_heatmap(agnostic, figsize = (8,8)):
     plt.xlabel("time series", fontsize=fontsize)
     plt.tick_params(axis='both', which='major', labelsize=fontsize)
     ax.matshow(sorted_dataset.T,interpolation=None, aspect='auto', cmap=cmap)
+    
+    
+def plot_shapelet_rule_and_counterfactual(agnostic, figsize = (20,3), fontsize = 20):
+    x = agnostic.instance_to_explain.reshape(1,-1)
+    instance_to_explain = agnostic.decoder.predict(agnostic.instance_to_explain_latent.reshape(1,-1)).ravel().reshape(1,-1)
+    instance_to_explain_label = agnostic.instance_to_explain_blackbox_class
+    instance_to_explain_distance = agnostic.shapelet_explainer.shapelet_generator.transform(instance_to_explain)
+    instance_to_explain_binarized = 1*(instance_to_explain_distance < (np.quantile(instance_to_explain_distance,agnostic.shapelet_explainer.best_quantile)))
+    
+    predicted_locations = agnostic.shapelet_explainer.shapelet_generator.locate(x)
+    
+    dtree = NewTree(agnostic.shapelet_explainer.surrogate)
+    dtree.build_tree()
+    leave_id = agnostic.shapelet_explainer.surrogate.apply(instance_to_explain_binarized)[0]
+    
+    rule = get_root_leaf_path(dtree.nodes[leave_id])
+    rule = get_thresholds_signs(dtree, rule)
+    
+    
+    
+    nearest_leaf = minimumDistance(dtree.nodes[0],dtree.nodes[leave_id])[1]
+    counterfactual = get_root_leaf_path(dtree.nodes[nearest_leaf])
+    counterfactual = get_thresholds_signs(dtree, counterfactual)
+    
+    rules_list = [rule, counterfactual]
+    print("VERBOSE EXPLANATION")  
+    #return rule,counterfactual
+    for i, rule in enumerate(rules_list):
+        
+        print()
+        print("RULE" if i == 0 else "COUNTERFACTUAL")
+        if i == 0:
+            print("blackbox class ==", agnostic.labels[instance_to_explain_label] if agnostic.labels else instance_to_explain_label)
+        print("If", end = " ")
+        for i, idx_shp in enumerate(rule["features"][:-1]):
+            print("shapelet n.", idx_shp, "is", rule["thresholds_signs"][i], end = "")
+            if i != len(rule["features"][:-1]) - 1:
+                print(", and", end = " ")
+            else: print(",", end = " ")
+        print("then the class is", rule["labels"][-1] if not agnostic.shapelet_explainer.labels else agnostic.shapelet_explainer.labels[rule["labels"][-1]])
+    
+    
+    print()
+    print("COMPLETE EXPLANATION")
+    
+    for i, rule in enumerate(rules_list):
+        print("RULE" if i == 0 else "COUNTERFACTUAL")
+        print("If", end = " ")
+        for i, idx_shp in enumerate(rule["features"][:-1]):
+            
+            plt.figure(figsize=figsize)#figsize = (figsize[0]/3,figsize[1]/3)
+            plt.xlim((0, len(instance_to_explain.ravel())-1))
+            plt.plot(instance_to_explain.T, c = "gray", alpha = 0)
+            #plt.axis('equal')
+            print("shapelet n.", idx_shp, "is", rule["thresholds_signs"][i], end = "")
+            shp = agnostic.shapelet_explainer.shapelet_generator.shapelets_[idx_shp].ravel()
+            
+            plt.plot(shp, 
+                     c = "#2ca02c" if rule["thresholds_signs"][i] == "contained" else "#d62728",
+                     linewidth=3
+                         )
+            plt.axis('off')
+            plt.show()
+            if i != len(rule["features"][:-1]) - 1:
+                print("and", end = " ")
+            else: print("", end = "")
+        print("then the class is", rule["labels"][-1] if not agnostic.shapelet_explainer.labels else agnostic.shapelet_explainer.labels[rule["labels"][-1]])
+        print()
+        print()
+        
+    threshold_array = np.full(len(x.ravel()), np.NaN)
+    for i, idx_shp in enumerate(rules_list[0]["features"][:-1]):
+        shp = agnostic.shapelet_explainer.shapelet_generator.shapelets_[idx_shp].ravel()
+        threshold_sign = rules_list[0]["thresholds_signs"][i]
+
+        t0 = predicted_locations[0, idx_shp]
+        
+        if threshold_sign == "contained":
+            threshold_array[t0:t0 + len(shp)] = 0
+            
+    cmap = ListedColormap(["#2ca02c"])
+    
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.set_title("Shapelets best alignments", fontsize = fontsize)
+    
+    ax.plot(x.T, c = "mediumblue", alpha = 0.2, lw = 3)
+    for i, idx_shp in enumerate(rules_list[0]["features"][:-1]):
+        shp = agnostic.shapelet_explainer.shapelet_generator.shapelets_[idx_shp].ravel()
+        threshold_sign = rules_list[0]["thresholds_signs"][i]
+        #distance = shapelet_dict["distance"][i]
+        t0 = predicted_locations[0, idx_shp]
+        ax.plot(np.arange(t0, t0 + len(shp)), shp, 
+                 #linewidth=4, 
+                 linestyle = "-" if threshold_sign == "contained" else "--",
+                 alpha = 1 if threshold_sign == "contained" else 1,
+                 label = threshold_sign,
+                 c = "#2ca02c" if threshold_sign == "contained" else "#d62728",
+                 lw=3
+                )
+    ax.pcolorfast((0, len(threshold_array)-1),
+                  ax.get_ylim(),
+                  threshold_array[np.newaxis],
+                  cmap = cmap, 
+                  alpha=0.2
+                  )
+    handles, labels = plt.gca().get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    plt.tick_params(axis='both', which='major', labelsize=fontsize)
+    plt.xlabel("timesteps",fontsize = fontsize)
+    plt.ylabel("values",fontsize = fontsize)
+    plt.legend(by_label.values(), by_label.keys())
+    plt.show()
+    #return rule, counterfactual
+    
+    
     
 def plot_series_shapelet_explanation(agnostic,
                                          mapper = None,
