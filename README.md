@@ -1,3 +1,3 @@
-# TS_AgnosticLocalExplainer
-
-The repository for my master thesis.
+# LASTS
+LASTS (Local Agnostic Subsequence-based Time Series explainer) is a method that explain the decisions of black-box time series classifiers. 
+The explanation consists of factual and counterfactual shapelet-based rules revealing the reasons for the classification, and of a set of exemplars and counter-exemplars highlighting similarities and differences with the time series under analysis. The proposed method first generates exemplar and counter-exemplar time series in the latent feature space and learns a local latent decision tree classifier. Then, it selects and decodes those respecting the decision rules explaining the decision. Finally, it learns on them a shapelet-tree that reveals the parts of the time series that must, and must not, be contained for getting the returned outcome from the black box.
